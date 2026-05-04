@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide scrollbars on mobile only */
+@layer components {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hero-logo-shell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 120px;
+    min-width: 120px;
+    height: 80px;
+    min-height: 80px;
+    aspect-ratio: 3 / 2;
+  }
+  
+  /* Show and style scrollbar on desktop */
+  @media (min-width: 768px) {
+    .scrollbar-hide {
+      -ms-overflow-style: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar) transparent;
+    }
+    .scrollbar-hide::-webkit-scrollbar {
+      display: block;
+      width: 10px;
+      height: 10px;
+    }
+    .scrollbar-hide::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .scrollbar-hide::-webkit-scrollbar-thumb {
+      background: var(--scrollbar);
+      border-radius: 5px;
+    }
+    .scrollbar-hide::-webkit-scrollbar-thumb:hover {
+      opacity: 0.8;
+    }
+  }
+}
+
+:root {
+  /* Standard Fallback (Classic Menu) */
+  --bg-main: #efe9dd;
+  --bg-card: #f7f2e8;
+  --text-main: #5f5a53;
+  --text-muted: #7f766b;
+  --primary: #8b8278;
+  --accent: #6f665c;
+  --danger: #ef4444;
+  --scrollbar: #a89f92;
+  --app-font-sans: var(--font-geist-sans);
+  
+  --font-geist-sans: sans-serif;
+  --font-geist-mono: monospace;
+}
+
+/* --- THEMES --- */
+
+/* 1. Classic */
+html[data-theme="classic"] {
+  --bg-main: #f8fafc !important;
+  --bg-card: #ffffff !important;
+  --text-main: #1e293b !important;
+  --text-muted: #64748b !important;
+  --primary: #d97706 !important;
+  --accent: #15803d !important;
+  --scrollbar: #64748b !important;
+}
+
+/* 2. Minimal White/Gray */
+html[data-theme="futuristic"] {
+  --bg-main: #ffffff !important;
+  --bg-card: #f5f5f5 !important;
+  --text-main: #333333 !important;
+  --text-muted: #666666 !important;
+  --primary: #6b7280 !important;
+  --accent: #374151 !important;
+  --scrollbar: #9ca3af !important;
+}
+
+/* 3. NEU: ORDRY (Deine Firmenfarben) */
+html[data-theme="ordry"] {
+  --bg-main: #f8f9fa !important;       /* Dein heller Hintergrund */
+  --bg-card: #ffffff !important;       /* Weiße Karten */
+  --text-main: #275D7B !important;     /* Dein Dunkelblau als Text */
+  --text-muted: #2D7596 !important;    /* Dein Mittelblau als Info-Text */
+  --primary: #358BB2 !important;       /* Dein Hellblau für Buttons/Header */
+  --accent: #FF6633 !important;        /* Dein Orange für Highlights/Preise */
+  --scrollbar: #2D7596 !important;
+}
+
+/* 4. Retro Diner Menu */
+html[data-theme="retro_menu"] {
+  --bg-main: #ead7cf !important;
+  --bg-card: #f3e6c8 !important;
+  --text-main: #5b4b3d !important;
+  --text-muted: #8f775f !important;
+  --primary: #2e4fa6 !important;
+  --accent: #ead7cf !important;
+  --scrollbar: #b79573 !important;
+}
+
+/* 5. Soft Bistro */
+html[data-theme="soft_menu"] {
+  --bg-main: #efefef !important;
+  --bg-card: #f7f7f7 !important;
+  --text-main: #111111 !important;
+  --text-muted: #6b6b6b !important;
+  --primary: #111111 !important;
+  --accent: #178c52 !important;
+  --scrollbar: #bdbdbd !important;
+}
+
+/* Modern (ersetzt durch Classic Menu Farben) */
+html[data-theme="modern"] {
+  --bg-main: #efe9dd !important;
+  --bg-card: #f7f2e8 !important;
+  --text-main: #5f5a53 !important;
+  --text-muted: #7f766b !important;
+  --primary: #8b8278 !important;
+  --accent: #6f665c !important;
+  --scrollbar: #a89f92 !important;
+}
+
+html, body, #__next {
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--app-font-sans), var(--font-geist-sans), sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Schriftart wirklich auf ALLES anwenden */
+body,
+body * {
+  font-family: var(--app-font-sans), var(--font-geist-sans), sans-serif !important;
+}
+
+/* --- ORDER SUCCESS: STIRRING POT ANIMATION --- */
+@keyframes spoon-stir-line {
+  0% { transform: rotate(-12deg); }
+  50% { transform: rotate(12deg); }
+  100% { transform: rotate(-12deg); }
+}
+
+@keyframes motion-pulse {
+  0% { opacity: 0.15; stroke-dashoffset: 24; }
+  50% { opacity: 0.55; }
+  100% { opacity: 0.15; stroke-dashoffset: 0; }
+}
+
+@keyframes flame-flicker {
+  0% { opacity: 0.9; transform: translateY(0); }
+  50% { opacity: 0.55; transform: translateY(-2px); }
+  100% { opacity: 0.9; transform: translateY(0); }
+}
+
+.cook-icon {
+  color: color-mix(in srgb, var(--text-main) 80%, #222);
+}
+
+.cook-spoon {
+  transform-origin: 130px 64px;
+  animation: spoon-stir-line 0.95s ease-in-out infinite;
+}
+
+.cook-motion-line {
+  stroke-dasharray: 8 12;
+  animation: motion-pulse 1s ease-in-out infinite;
+}
+
+.cook-flame {
+  animation: flame-flicker 0.75s ease-in-out infinite;
+}
