@@ -1,12 +1,19 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "main": ".open-next/worker.js",
-  "name": "ordry-demo",
-  "compatibility_date": "2024-12-30",
+  "name": "ordry-app",
+  "compatibility_date": "2026-05-06",
   "compatibility_flags": [
     "nodejs_compat",
     "global_fetch_strictly_public"
   ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "NEXT_PUBLIC_SUPABASE_URL": "https://xlqlyauokjduzdgrozwh.supabase.co",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhscWx5YXVva2pkdXpkZ3JvendoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg2NzYyMzAsImV4cCI6MjA4NDI1MjIzMH0.zHaXwu4xtwyPJ_xBEiRFZQoV6feZ5iVwiCDnxSDfcaQ",
+    "NEXT_PUBLIC_RESTAURANT_ID": "demo-restaurant-1"
+  },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
@@ -14,7 +21,7 @@
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "ordry-demo"
+      "service": "ordry-app"
     }
   ]
 }
