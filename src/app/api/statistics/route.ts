@@ -1,9 +1,19 @@
-import { supabase } from '@/lib/supabase';
+import { assertSupabaseConfigured, supabase } from '@/lib/supabase';
 import { NextResponse } from 'next/server';
+
+type StatisticsOrder = {
+  id: string | number;
+  created_at: string;
+  table_id?: string | number | null;
+  status?: string | null;
+  items?: string[] | null;
+  total_price?: number | null;
+};
 
 export async function GET() {
   try {
-  const ORDER_META_PREFIXES = ['[[shadow]]', '[[station:food]]', '[[station:drink]]'];
+    assertSupabaseConfigured();
+    const ORDER_META_PREFIXES = ['[[shadow]]', '[[station:food]]', '[[station:drink]]'];
 
     const cleanDishName = (value: string) => {
       let name = value.trim();
@@ -43,7 +53,7 @@ export async function GET() {
 
     if (error) throw error;
 
-    const orders = allOrders || [];
+    const orders = (allOrders || []) as StatisticsOrder[];
 
     const { data: allVisibleOrders, error: allVisibleOrdersError } = await supabase
       .from('orders')
@@ -54,7 +64,7 @@ export async function GET() {
 
     if (allVisibleOrdersError) throw allVisibleOrdersError;
 
-    const orderList = (allVisibleOrders || [])
+    const orderList = ((allVisibleOrders || []) as StatisticsOrder[])
       .slice()
       .map((order) => {
         const visibleItems = Array.isArray(order.items)
@@ -75,7 +85,7 @@ export async function GET() {
       .filter((order) => order.itemCount > 0);
 
     // --- 1. BESTELLUNGEN PRO TAG ---
-    const ordersByDay = new Map<string, { count: number; revenue: number; orders: any[] }>();
+    const ordersByDay = new Map<string, { count: number; revenue: number; orders: StatisticsOrder[] }>();
     
     orders.forEach(order => {
       const date = new Date(order.created_at);
@@ -206,10 +216,12 @@ export async function GET() {
         uniqueDishes: dishFrequency.size
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Statistik-Fehler:', error);
+    const message = error instanceof Error ? error.message : 'Unbekannter Statistik-Fehler';
+
     return NextResponse.json(
-      { error: error.message },
+      { error: message },
       { status: 500 }
     );
   }
