@@ -6,7 +6,7 @@ export function middleware() {
   return NextResponse.next();
 }
 
-export const runtime = 'edge';
+export const runtime = 'experimental-edge';
 
 export const config = {
   matcher: '/kitchen/:path*',
