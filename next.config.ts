@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   trailingSlash: true,
   devIndicators: false,
+  turbopack: {
+    root: process.cwd(),
+  },
   experimental: {
     serverActions: {
       // Hier erlauben wir den Zugriff über den Tunnel
@@ -25,3 +28,9 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+<<<<<<< HEAD
+=======
+
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
+initOpenNextCloudflareForDev();
+>>>>>>> 855c9c3b67d0413eaeda37ccd9e649bb72c5cc41
