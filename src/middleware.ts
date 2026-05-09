@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
 
-export function middleware(request: NextRequest) {
+export function middleware() {
   // Wir machen GAR NICHTS und lassen einfach jeden durch.
   // Das beendet die Endlos-Schleife sofort.
   return NextResponse.next();
 }
+
+export const runtime = 'edge';
 
 export const config = {
   matcher: '/kitchen/:path*',

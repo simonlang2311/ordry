@@ -63,6 +63,8 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
+export const runtime = 'edge';
+
 export const config = {
   matcher: [
     /*
