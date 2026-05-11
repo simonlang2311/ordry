@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { createNewTokenForTable, fetchCurrentTokenForTable } from '@/lib/tokenManager';
+import { createNewTokenForTable, fetchCurrentTokenForTable, invalidateCustomerTokensForTable } from '@/lib/tokenManager';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { DEFAULT_RESTAURANT_FEATURES, RestaurantFeatures, loadRestaurantFeatures } from '@/lib/features';
 
@@ -110,9 +110,10 @@ function WaiterContent() {
   const [features, setFeatures] = useState<RestaurantFeatures>(DEFAULT_RESTAURANT_FEATURES);
   const [levels, setLevels] = useState<string[]>(['EG']);
   const [currentLevel, setCurrentLevel] = useState<string>('EG');
-  const [viewMode, setViewMode] = useState<'hall' | 'list'>('hall');
+  const [viewMode, setViewMode] = useState<'hall' | 'list'>('list');
 
   const [callingTables, setCallingTables] = useState<Set<string>>(new Set());
+  const [billCallingTables, setBillCallingTables] = useState<Set<string>>(new Set());
   const [readyFoodTables, setReadyFoodTables] = useState<Set<string>>(new Set());
   const [readyDrinkTables, setReadyDrinkTables] = useState<Set<string>>(new Set());
   const [occupiedTables, setOccupiedTables] = useState<Set<string>>(new Set());
@@ -424,7 +425,7 @@ function WaiterContent() {
     let hasDrink = false;
 
     order.items
-      .filter((item) => !stripOrderMeta(item).includes('KELLNER'))
+      .filter((item) => !stripOrderMeta(item).includes('KELLNER') && !stripOrderMeta(item).includes('RECHNUNG ANGEFORDERT'))
       .forEach((item) => {
         const itemTypes = getExpandedTypesForItem(item);
         if (itemTypes.has('food')) hasFood = true;
@@ -447,7 +448,7 @@ function WaiterContent() {
   const hasDrinkShadowStateForOrder = (order: OrderDetail, targetState: 'ready' | 'abgeholt') => {
     const ownDrinkCounts = new Map<string, number>();
     order.items
-      .filter((item) => !stripOrderMeta(item).includes('KELLNER'))
+      .filter((item) => !stripOrderMeta(item).includes('KELLNER') && !stripOrderMeta(item).includes('RECHNUNG ANGEFORDERT'))
       .forEach((item) => {
         const station = getOrderItemStation(item);
         const expandedItems = expandMenuItems(item);
@@ -479,7 +480,7 @@ function WaiterContent() {
       })
       .forEach((shadowOrder) => {
         shadowOrder.items
-          .filter((item) => !stripOrderMeta(item).includes('KELLNER'))
+          .filter((item) => !stripOrderMeta(item).includes('KELLNER') && !stripOrderMeta(item).includes('RECHNUNG ANGEFORDERT'))
           .forEach((item) => {
             const shadowStation = getOrderItemStation(item);
             const expandedItems = expandMenuItems(item);
@@ -523,7 +524,7 @@ function WaiterContent() {
     const types = new Set<CourseType>();
 
     (Array.isArray(items) ? items : []).forEach((item: any) => {
-      if (typeof item !== 'string' || item.includes('KELLNER')) return;
+      if (typeof item !== 'string' || item.includes('KELLNER') || item.includes('RECHNUNG ANGEFORDERT')) return;
 
       const station = getOrderItemStation(item);
       if (station === 'drink') {
@@ -752,13 +753,23 @@ function WaiterContent() {
     const { data: callData } = await supabase
       .from('orders')
       .select('table_id')
+      .eq('restaurant_id', restaurantId)
       .eq('status', 'new')
       .contains('items', ['KELLNER GERUFEN']);
     if (callData) setCallingTables(new Set(callData.map((o: any) => String(o.table_id))));
 
+    const { data: billCallData } = await supabase
+      .from('orders')
+      .select('table_id')
+      .eq('restaurant_id', restaurantId)
+      .eq('status', 'new')
+      .contains('items', ['RECHNUNG ANGEFORDERT']);
+    if (billCallData) setBillCallingTables(new Set(billCallData.map((o: any) => String(o.table_id))));
+
     const { data: openData } = await supabase
       .from('orders')
       .select('table_id, status, items')
+      .eq('restaurant_id', restaurantId)
       .neq('status', 'paid');
 
     if (openData) {
@@ -766,8 +777,8 @@ function WaiterContent() {
         if (Array.isArray(o.items) && o.items.length > 0 && o.items.every((item: string) => item.includes(ORDER_META_SHADOW))) return false;
         const items = Array.isArray(o.items) ? o.items : [];
         if (items.length === 0) return false;
-        const onlyWaiterCall = items.every((it: any) => typeof it === 'string' && it.includes('KELLNER GERUFEN'));
-        return !onlyWaiterCall;
+        const onlyServiceCall = items.every((it: any) => typeof it === 'string' && (it.includes('KELLNER GERUFEN') || it.includes('RECHNUNG ANGEFORDERT')));
+        return !onlyServiceCall;
       });
 
       setOccupiedTables(new Set(trulyOpen.map((o: any) => String(o.table_id))));
@@ -811,7 +822,7 @@ function WaiterContent() {
     if(!items) return 0;
     items.forEach(itemStr => {
        const cleanItem = stripOrderMeta(itemStr);
-       if(cleanItem.includes("KELLNER")) return;
+       if(cleanItem.includes("KELLNER") || cleanItem.includes("RECHNUNG ANGEFORDERT")) return;
        sum += getOrderItemTotal(itemStr);
     });
     return sum;
@@ -959,6 +970,32 @@ function WaiterContent() {
       }
   };
 
+  const renameLevel = async (oldName: string) => {
+    const trimmedOldName = oldName.trim();
+    const nextName = prompt("Neuer Name der Ebene:", trimmedOldName)?.trim();
+    if (!nextName || nextName === trimmedOldName) return;
+    if (levels.some(level => level !== trimmedOldName && level.toLowerCase() === nextName.toLowerCase())) {
+      alert("Diese Ebene gibt es bereits.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from('tables')
+      .update({ level: nextName })
+      .eq('restaurant_id', restaurantId)
+      .eq('level', trimmedOldName);
+
+    if (error) {
+      console.error('[Waiter] Ebene konnte nicht umbenannt werden:', error);
+      alert("Ebene konnte nicht umbenannt werden.");
+      return;
+    }
+
+    setLevels(prev => prev.map(level => level === trimmedOldName ? nextName : level));
+    setTables(prev => prev.map(table => (table.level || 'EG') === trimmedOldName ? { ...table, level: nextName } : table));
+    setCurrentLevel(prev => prev === trimmedOldName ? nextName : prev);
+  };
+
   const createTable = async (shape: TableShape) => {
     if (tables.length >= features.tableLimit) {
         alert(`Das Tischlimit für dieses Restaurant ist erreicht (${features.tableLimit}).`);
@@ -1039,7 +1076,7 @@ function WaiterContent() {
       const types = new Set<CourseType>();
 
       (Array.isArray(items) ? items : []).forEach((item: any) => {
-        if (typeof item !== 'string' || item.includes('KELLNER')) return;
+        if (typeof item !== 'string' || item.includes('KELLNER') || item.includes('RECHNUNG ANGEFORDERT')) return;
 
         const station = getOrderItemStation(item);
         if (station === 'drink') {
@@ -1064,7 +1101,7 @@ function WaiterContent() {
       const types = new Set<CourseType>();
 
       (Array.isArray(items) ? items : []).forEach((item: any) => {
-        if (typeof item !== 'string' || item.includes('KELLNER')) return;
+        if (typeof item !== 'string' || item.includes('KELLNER') || item.includes('RECHNUNG ANGEFORDERT')) return;
 
         const station = getOrderItemStation(item);
         if (station === 'drink') {
@@ -1134,10 +1171,12 @@ function WaiterContent() {
   const handleQuickReset = async (tableLabel: string) => {
     if (isEditing) return;
     const newCalls = new Set(callingTables); newCalls.delete(tableLabel); setCallingTables(newCalls);
+    const newBillCalls = new Set(billCallingTables); newBillCalls.delete(tableLabel); setBillCallingTables(newBillCalls);
     const newReadyFood = new Set(readyFoodTables); newReadyFood.delete(tableLabel); setReadyFoodTables(newReadyFood);
     const newReadyDrink = new Set(readyDrinkTables); newReadyDrink.delete(tableLabel); setReadyDrinkTables(newReadyDrink);
     const pickedUpReadyOrderIds = await syncKitchenCoursesToPickedUpForTable(tableLabel);
-    await supabase.from('orders').update({ status: 'abgeholt' }).eq('table_id', tableLabel).contains('items', ['KELLNER GERUFEN']);
+    await supabase.from('orders').update({ status: 'abgeholt' }).eq('restaurant_id', restaurantId).eq('table_id', tableLabel).contains('items', ['KELLNER GERUFEN']);
+    await supabase.from('orders').update({ status: 'abgeholt' }).eq('restaurant_id', restaurantId).eq('table_id', tableLabel).contains('items', ['RECHNUNG ANGEFORDERT']);
     if (pickedUpReadyOrderIds.length > 0) {
       await supabase.from('orders').update({ status: 'abgeholt' }).eq('restaurant_id', restaurantId).in('id', pickedUpReadyOrderIds);
     }
@@ -1166,16 +1205,35 @@ function WaiterContent() {
   };
 
   const clearWaiterCallForTable = async (tableLabel: string) => {
-    const newCalls = new Set(callingTables);
-    if (!newCalls.has(tableLabel)) return;
-    newCalls.delete(tableLabel);
-    setCallingTables(newCalls);
+    const hasWaiterCall = callingTables.has(tableLabel);
+    const hasBillCall = billCallingTables.has(tableLabel);
+    if (!hasWaiterCall && !hasBillCall) return;
+
+    if (hasWaiterCall) {
+      const newCalls = new Set(callingTables);
+      newCalls.delete(tableLabel);
+      setCallingTables(newCalls);
+    }
+
+    if (hasBillCall) {
+      const newBillCalls = new Set(billCallingTables);
+      newBillCalls.delete(tableLabel);
+      setBillCallingTables(newBillCalls);
+    }
 
     await supabase
       .from('orders')
       .update({ status: 'abgeholt' })
+      .eq('restaurant_id', restaurantId)
       .eq('table_id', tableLabel)
       .contains('items', ['KELLNER GERUFEN']);
+
+    await supabase
+      .from('orders')
+      .update({ status: 'abgeholt' })
+      .eq('restaurant_id', restaurantId)
+      .eq('table_id', tableLabel)
+      .contains('items', ['RECHNUNG ANGEFORDERT']);
 
     setTimeout(fetchStatus, 300);
   };
@@ -1183,7 +1241,7 @@ function WaiterContent() {
   const handleOpenDetails = async (e: React.MouseEvent | null, tableLabel: string) => {
     if (e) e.stopPropagation(); 
     if (isEditing) return;
-    if (callingTables.has(tableLabel)) {
+    if (callingTables.has(tableLabel) || billCallingTables.has(tableLabel)) {
       await clearWaiterCallForTable(tableLabel);
     }
     // UPDATE: Datum beim Öffnen auf Heute setzen
@@ -1206,9 +1264,8 @@ function WaiterContent() {
     // Markiere alle Bestellungen als "paid"
     await supabase.from('orders').update({ status: 'paid' }).eq('table_id', selectedTable).neq('status', 'paid');
     
-    // Erstelle einen neuen Token für die nächste Sitzung
-    const newTok = await createNewTokenForTable(selectedTable, supabase, restaurantId);
-    setTableToken(newTok);
+    // QR-Code bleibt gültig; nur der Kunden-Token für alte Browser-Links rotiert.
+    await invalidateCustomerTokensForTable(selectedTable, supabase, restaurantId);
     
     setSelectedTable(null);
     fetchStatus();
@@ -1448,10 +1505,9 @@ function WaiterContent() {
         .eq('table_id', selectedTable)
         .neq('status', 'paid');
       
-      // Wenn alle bezahlt sind, erstelle neuen Token
+      // Wenn alle bezahlt sind, rotiere den Kunden-Token für alte Browser-Links.
       if (!unpaidOrders || unpaidOrders.length === 0) {
-        const newTok = await createNewTokenForTable(selectedTable, supabase, restaurantId);
-        setTableToken(newTok);
+        await invalidateCustomerTokensForTable(selectedTable, supabase, restaurantId);
       }
       
       loadTableData(selectedTable);
@@ -1514,8 +1570,8 @@ function WaiterContent() {
     if(selectedTable) loadTableData(selectedTable);
   };
   const openGuestView = () => {
-    if (!selectedTable) return;
-    const url = `/${encodeURIComponent(restaurantId)}/t/${encodeURIComponent(selectedTable)}`;
+    if (!selectedTable || !tableToken) return;
+    const url = `/${encodeURIComponent(restaurantId)}/qr/${encodeURIComponent(selectedTable)}?qr=${encodeURIComponent(tableToken)}`;
     window.open(url, '_blank');
   };
 
@@ -1609,7 +1665,7 @@ function WaiterContent() {
 
   const getLevelStatus = (lvl: string) => {
     const tablesOnLevel = tables.filter(t => (t.level || 'EG') === lvl);
-    const hasCall = tablesOnLevel.some(t => callingTables.has(t.label));
+    const hasCall = tablesOnLevel.some(t => callingTables.has(t.label) || billCallingTables.has(t.label));
     const hasFoodReady = tablesOnLevel.some(t => readyFoodTables.has(t.label));
     const hasDrinkReady = tablesOnLevel.some(t => readyDrinkTables.has(t.label));
     const hasReady = hasFoodReady || hasDrinkReady;
@@ -1622,6 +1678,7 @@ function WaiterContent() {
 
   const getTableVisualStatus = (tableLabel: string) => {
     const isCalling = callingTables.has(tableLabel);
+    const isBillCalling = billCallingTables.has(tableLabel);
     const isFoodReady = readyFoodTables.has(tableLabel);
     const isDrinkReady = readyDrinkTables.has(tableLabel);
     const isOccupied = occupiedTables.has(tableLabel);
@@ -1631,24 +1688,24 @@ function WaiterContent() {
     let statusText: string | null = null;
     let animationClass = '';
 
-    if (isCalling && isFoodReady && isDrinkReady) {
+    if ((isCalling || isBillCalling) && isFoodReady && isDrinkReady) {
       circleBg = 'linear-gradient(135deg, #dc2626 0%, #dc2626 34%, #16a34a 34%, #16a34a 67%, #0ea5e9 67%, #0ea5e9 100%)';
       circleBorder = '#fff';
-      statusText = 'Ruf + Alles';
+      statusText = `${isBillCalling ? 'Rechnung' : 'Ruf'} + Alles`;
       animationClass = 'animate-pulse';
-    } else if (isCalling) {
+    } else if (isCalling || isBillCalling) {
       if (isFoodReady) {
         circleBg = 'linear-gradient(135deg, #dc2626 50%, #16a34a 50%)';
         circleBorder = '#fff';
-        statusText = 'Ruf + Essen';
+        statusText = `${isBillCalling ? 'Rechnung' : 'Ruf'} + Essen`;
       } else if (isDrinkReady) {
         circleBg = 'linear-gradient(135deg, #dc2626 50%, #0ea5e9 50%)';
         circleBorder = '#fff';
-        statusText = 'Ruf + Getränk';
+        statusText = `${isBillCalling ? 'Rechnung' : 'Ruf'} + Getränk`;
       } else {
         circleBg = '#dc2626';
         circleBorder = '#fca5a5';
-        statusText = 'Ruf!';
+        statusText = isBillCalling ? 'Rechnung' : 'Ruf!';
       }
       animationClass = 'animate-pulse';
     } else if (isFoodReady && isDrinkReady) {
@@ -1665,11 +1722,12 @@ function WaiterContent() {
       statusText = 'GETRÄNK!';
     }
 
-    return { isCalling, isFoodReady, isDrinkReady, isOccupied, circleBg, circleBorder, statusText, animationClass };
+    return { isCalling, isBillCalling, isFoodReady, isDrinkReady, isOccupied, circleBg, circleBorder, statusText, animationClass };
   };
 
   const visibleTables = tables.filter(t => (t.level || 'EG') === currentLevel);
   const tableLimitText = features.tableLimit === 1 ? "1 freigeschaltet" : `${features.tableLimit} freigeschaltet`;
+  const topControlClass = "flex h-10 w-[9.5rem] items-center justify-center gap-1.5 rounded-lg px-3 text-center text-xs font-bold leading-tight shadow-lg transition-all md:h-11 md:w-[16rem] md:whitespace-nowrap md:text-sm";
 
   const getBlockedItems = () => {
     const blocked: Record<string, number> = {};
@@ -1701,7 +1759,7 @@ function WaiterContent() {
 
         order.items.forEach((itemStr, idx) => {
           const cleanItem = stripOrderMeta(itemStr);
-          if (cleanItem.includes('KELLNER')) return;
+          if (cleanItem.includes('KELLNER') || cleanItem.includes('RECHNUNG ANGEFORDERT')) return;
 
           const { quantity, label } = parseOrderItemString(itemStr);
           const normalizedName = normalizeItemName(label);
@@ -1824,7 +1882,7 @@ function WaiterContent() {
       .forEach((order) => {
         order.items.forEach((itemStr) => {
           const cleanItem = stripOrderMeta(itemStr);
-          if (cleanItem.includes('KELLNER')) return;
+          if (cleanItem.includes('KELLNER') || cleanItem.includes('RECHNUNG ANGEFORDERT')) return;
 
           const { quantity, label } = parseOrderItemString(itemStr);
           const normalizedKey = normalizeItemName(label);
@@ -1970,21 +2028,23 @@ function WaiterContent() {
         <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
             <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">{currentLevel}</h1>
             <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-lg border border-app-muted/20 bg-app-card px-3 py-2 text-xs font-bold text-app-muted shadow-lg">
-                Tische: <span className="text-app-text">{tables.length}</span> erstellt / {tableLimitText}
+            <div className={`${topControlClass} hidden border border-app-muted/20 bg-app-card text-app-muted md:flex`}>
+                <span>Tische:</span>
+                <span className="text-app-text">{tables.length}</span>
+                <span>erstellt / {tableLimitText}</span>
             </div>
-            <a href={restaurantHomeHref} className="bg-app-card text-app-text px-4 py-2 rounded-lg font-bold transition-all shadow-lg hover:bg-app-muted/20">Home</a>
-            <a href={reservationsOverviewHref} className="bg-app-card text-app-text px-4 py-2 rounded-lg font-bold transition-all shadow-lg hover:bg-app-muted/20">Reservierungen</a>
+            <a href={restaurantHomeHref} className={`${topControlClass} bg-app-card text-app-text hover:bg-app-muted/20`}>Home</a>
+            <a href={reservationsOverviewHref} className={`${topControlClass} bg-app-card text-app-text hover:bg-app-muted/20`}>Reservierungen</a>
             {isEditing && (
                 <button
                   onClick={() => setShowNewTableModal(true)}
                   disabled={tables.length >= features.tableLimit}
-                  className="bg-green-600 hover:bg-green-500 disabled:bg-app-muted/30 disabled:text-app-muted disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-bold shadow-lg flex items-center gap-2 animate-in fade-in"
+                  className={`${topControlClass} hidden bg-green-600 text-white hover:bg-green-500 disabled:bg-app-muted/30 disabled:text-app-muted disabled:cursor-not-allowed animate-in fade-in md:flex`}
                 >
-                <span>Neu</span> Tisch
+                Neuer Tisch
                 </button>
             )}
-            <button onClick={() => setIsEditing(!isEditing)} className={`px-4 py-2 rounded-lg font-bold transition-all shadow-lg ${isEditing ? "bg-app-accent text-white" : "bg-app-card text-app-text"}`}>
+            <button onClick={() => setIsEditing(!isEditing)} className={`${topControlClass} hidden md:flex ${isEditing ? "bg-app-accent text-white" : "bg-app-card text-app-text"}`}>
                 {isEditing ? "Fertig" : "Layout / Tische erstellen"}
             </button>
             </div>
@@ -1993,16 +2053,16 @@ function WaiterContent() {
         <div className="px-4 pb-2">
           <div className="inline-flex bg-app-card/70 rounded-xl p-1 border border-app-muted/30">
             <button
-              onClick={() => setViewMode('hall')}
-              className={`px-4 py-1.5 text-xs md:text-sm font-bold rounded-lg transition-colors ${viewMode === 'hall' ? 'bg-app-primary text-white' : 'text-app-muted hover:text-app-text'}`}
-            >
-              Saal
-            </button>
-            <button
               onClick={() => setViewMode('list')}
-              className={`px-4 py-1.5 text-xs md:text-sm font-bold rounded-lg transition-colors ${viewMode === 'list' ? 'bg-app-primary text-white' : 'text-app-muted hover:text-app-text'}`}
+              className={`h-8 w-20 rounded-lg text-xs font-bold transition-colors md:h-9 md:w-24 md:text-sm ${viewMode === 'list' ? 'bg-app-primary text-white' : 'text-app-muted hover:text-app-text'}`}
             >
               Liste
+            </button>
+            <button
+              onClick={() => setViewMode('hall')}
+              className={`h-8 w-20 rounded-lg text-xs font-bold transition-colors md:h-9 md:w-24 md:text-sm ${viewMode === 'hall' ? 'bg-app-primary text-white' : 'text-app-muted hover:text-app-text'}`}
+            >
+              Saal
             </button>
           </div>
         </div>
@@ -2035,9 +2095,25 @@ function WaiterContent() {
                 }
                 
                 return (
-                    <button key={lvl} onClick={() => setCurrentLevel(lvl)} className={tabClass}>
-                        {lvl}
-                    </button>
+                    <div key={lvl} className="relative flex items-center">
+                      <button onClick={() => setCurrentLevel(lvl)} className={tabClass}>
+                          {lvl}
+                      </button>
+                      {isEditing && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            renameLevel(lvl);
+                          }}
+                          className="ml-1 h-9 w-9 rounded-t-lg bg-app-card/60 text-xs font-black text-app-muted transition-colors hover:bg-app-card hover:text-app-text"
+                          aria-label={`Ebene ${lvl} umbenennen`}
+                          title="Ebene umbenennen"
+                        >
+                          ✎
+                        </button>
+                      )}
+                    </div>
                 )
             })}
             {isEditing && (
@@ -2059,7 +2135,7 @@ function WaiterContent() {
 
       {/* TISCHE BEREICH */}
       {viewMode === 'hall' ? (
-        <div className="waiter-scroll-area waiter-scroll-area-hall w-full mt-40 h-[calc(100dvh-10rem)] px-2 pb-2 pt-7 md:mt-36 md:h-[calc(100dvh-9rem)] md:px-4 md:pb-4 md:pt-6 overflow-auto bg-app-bg">
+        <div className="waiter-scroll-area waiter-scroll-area-hall w-full mt-56 h-[calc(100dvh-14rem)] px-2 pb-2 pt-7 md:mt-36 md:h-[calc(100dvh-9rem)] md:px-4 md:pb-4 md:pt-6 overflow-auto bg-app-bg">
           <div className="relative min-w-[1600px] min-h-[1200px] pb-24 table-layout-wrapper origin-top-left bg-app-bg"
                style={{ 
                  width: '1600px',
@@ -2119,13 +2195,13 @@ function WaiterContent() {
           </div>
         </div>
       ) : (
-        <div className="waiter-scroll-area waiter-scroll-area-list w-full mt-40 h-[calc(100dvh-10rem)] p-3 pt-5 md:mt-36 md:h-[calc(100dvh-9rem)] md:p-4 overflow-auto bg-app-bg overscroll-y-contain">
+        <div className="waiter-scroll-area waiter-scroll-area-list w-full mt-56 h-[calc(100dvh-14rem)] p-3 pt-5 md:mt-36 md:h-[calc(100dvh-9rem)] md:p-4 overflow-auto bg-app-bg overscroll-y-contain">
           <div className="max-w-5xl mx-auto pt-3 md:pt-4 space-y-2 md:space-y-3 pb-24">
             {visibleTables
               .slice()
               .sort((a, b) => a.label.localeCompare(b.label, 'de', { numeric: true }))
               .map((table) => {
-                const { isCalling, isFoodReady, isDrinkReady, isOccupied, animationClass } = getTableVisualStatus(table.label);
+                const { isCalling, isBillCalling, isFoodReady, isDrinkReady, isOccupied, animationClass } = getTableVisualStatus(table.label);
                 const cardHighlightClass = (() => {
                   if (isCalling && isFoodReady && isDrinkReady) {
                     return 'border-red-500 ring-2 ring-red-500/40 bg-gradient-to-r from-red-50 via-green-50 to-sky-50 shadow-lg shadow-red-200/40';
@@ -2167,6 +2243,7 @@ function WaiterContent() {
                       </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
                         {isCalling && <span className="text-[10px] md:text-xs font-bold bg-red-500/20 text-red-400 px-2 py-1 rounded-full">Ruf</span>}
+                        {isBillCalling && <span className="text-[10px] md:text-xs font-bold bg-red-500/20 text-red-400 px-2 py-1 rounded-full">Rechnung</span>}
                         {isFoodReady && (
                           <button
                             onClick={(e) => {
@@ -2251,16 +2328,16 @@ function WaiterContent() {
           <div className="bg-app-card text-app-text w-[99vw] md:w-[98vw] max-w-none rounded-xl md:rounded-2xl shadow-2xl flex flex-col h-[96dvh] md:h-[94dvh] overflow-hidden border border-app-muted/20" onClick={e => e.stopPropagation()}>
             <div className="bg-app-bg p-2 md:p-4 border-b border-app-muted/20 flex flex-col gap-1 md:gap-2 shrink-0">
                 <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2 md:gap-4"><h2 className="text-lg md:text-3xl font-black text-app-text">Tisch {selectedTable}</h2><button onClick={openGuestView} className="text-[10px] md:text-xs font-bold text-white bg-app-primary px-2 md:px-3 py-0.5 md:py-1 rounded-full hover:brightness-110 transition-colors">Gast ↗</button></div>
+                  <div className="flex items-center gap-2 md:gap-4"><h2 className="text-lg md:text-3xl font-black text-app-text">Tisch {selectedTable}</h2><button onClick={openGuestView} className="text-[10px] md:text-xs font-bold text-white bg-app-primary px-2 md:px-3 py-0.5 md:py-1 rounded-full hover:brightness-110 transition-colors">Bestellungen aufnehmen ↗</button></div>
                   <button onClick={() => setSelectedTable(null)} className="bg-app-card hover:bg-app-muted/20 border border-app-muted/30 rounded-full p-1.5 md:p-2 w-8 h-8 md:w-10 md:h-10 font-bold text-sm md:text-base text-app-text">✕</button>
                 </div>
                 {tableToken && (
                   <div className="hidden md:block text-sm text-app-muted space-y-1">
                     <div>
-                      Tisch‑Link:&nbsp;
-                      <code className="bg-app-card border border-app-muted/20 px-1 py-0.5 rounded break-all text-app-text">/{restaurantId}/t/{selectedTable}</code>
+                      QR‑Scan‑Link:&nbsp;
+                      <code className="bg-app-card border border-app-muted/20 px-1 py-0.5 rounded break-all text-app-text">/{restaurantId}/qr/{selectedTable}?qr=...</code>
                       &nbsp;(<button onClick={() => {
-                        navigator.clipboard.writeText(`${window.location.origin}/${encodeURIComponent(restaurantId)}/t/${encodeURIComponent(selectedTable)}`);
+                        navigator.clipboard.writeText(`${window.location.origin}/${encodeURIComponent(restaurantId)}/qr/${encodeURIComponent(selectedTable)}?qr=${encodeURIComponent(tableToken)}`);
                       }} className="underline">kopieren</button>)
                     </div>
                     <div>

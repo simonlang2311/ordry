@@ -67,7 +67,7 @@ function QRCodeContent() {
     if (!token) return '';
 
     const baseUrl = origin || window.location.origin;
-    return `${baseUrl}/qr/${encodeURIComponent(tableLabel)}?qr=${encodeURIComponent(token)}`;
+    return `${baseUrl}/${encodeURIComponent(restaurantId)}/qr/${encodeURIComponent(tableLabel)}?qr=${encodeURIComponent(token)}`;
   };
 
   const generateQRCode = async (table: Table, canvasIndex: number) => {

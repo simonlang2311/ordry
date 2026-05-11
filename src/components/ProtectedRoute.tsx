@@ -13,6 +13,7 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   const router = useRouter();
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const { isAuthenticated, isAuthInitialized, handlePasswordSubmit } = usePersonalAuth();
 
   const handlePasswordForm = (e: React.FormEvent) => {
@@ -53,14 +54,29 @@ export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
               <label className="text-sm font-bold text-blue-100 uppercase mb-2 block">
                 Passwort
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Passwort eingeben"
-                autoFocus
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white outline-none focus:border-white focus:ring-4 focus:ring-white/20 transition-all placeholder-blue-200/50"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Passwort eingeben"
+                  autoFocus
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 pr-12 text-white outline-none focus:border-white focus:ring-4 focus:ring-white/20 transition-all placeholder-blue-200/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-blue-100 hover:bg-white/15 hover:text-white"
+                  aria-label={showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                  title={showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                >
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+                    <circle cx="12" cy="12" r="3" />
+                    {showPassword && <path d="M4 4l16 16" />}
+                  </svg>
+                </button>
+              </div>
             </div>
 
             {passwordError && (

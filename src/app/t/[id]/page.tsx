@@ -2,8 +2,8 @@
 
 import { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { fetchCurrentCustomerTokenForTable, saveToken } from "@/lib/tokenManager";
 import { supabase } from "@/lib/supabase";
-import { generateToken } from "@/lib/tokenManager";
 
 export default function RedirectPage() {
   const params = useParams();
@@ -18,29 +18,11 @@ export default function RedirectPage() {
       }
 
       try {
-        const { data, error } = await supabase
-          .from('tables')
-          .select('current_token')
-          .eq('label', tableId)
-          .single();
+        const restaurantId = process.env.NEXT_PUBLIC_RESTAURANT_ID || 'demo-restaurant-1';
+        const customerToken = await fetchCurrentCustomerTokenForTable(tableId, supabase, restaurantId);
+        saveToken(tableId, customerToken, restaurantId);
 
-        if (error || !data) {
-          console.error('[Redirect] Fehler beim Token-Abruf:', error);
-          router.push('/');
-          return;
-        }
-
-        let token = data.current_token;
-
-        if (!token) {
-          token = generateToken();
-          await supabase
-            .from('tables')
-            .update({ current_token: token })
-            .eq('label', tableId);
-        }
-
-        router.replace(`/table/${encodeURIComponent(tableId)}?token=${encodeURIComponent(token)}`);
+        router.replace(`/table/${encodeURIComponent(tableId)}?token=${encodeURIComponent(customerToken)}`);
       } catch (err) {
         console.error('[Redirect] Unerwarteter Fehler:', err);
         router.push('/');

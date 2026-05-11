@@ -65,6 +65,7 @@ function KitchenContent() {
   const [drinksTarget, setDrinksTarget] = useState<"bar" | "kitchen">("bar");
   const router = useRouter();
   const [isBrowser, setIsBrowser] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [courseStatus, setCourseStatus] = useState<Record<string, CourseStatus>>({});
   const [currentTime, setCurrentTime] = useState("");
   const pendingCourseStatusRef = useRef<Record<string, CourseStatus>>({});
@@ -98,6 +99,9 @@ function KitchenContent() {
   useEffect(() => {
     setIsBrowser(true);
     setCurrentTime(formatCurrentTime());
+    const updateIsMobile = () => setIsMobile(window.innerWidth < 768);
+    updateIsMobile();
+    window.addEventListener("resize", updateIsMobile);
 
     const clockInterval = window.setInterval(() => {
       setCurrentTime(formatCurrentTime());
@@ -222,6 +226,7 @@ function KitchenContent() {
     }, 3000);
 
     return () => {
+      window.removeEventListener("resize", updateIsMobile);
       window.clearInterval(clockInterval);
       clearInterval(pollId);
       supabase.removeChannel(channel);
@@ -565,14 +570,14 @@ function KitchenContent() {
   const courseGroups = createCourseGroups();
 
   return (
-    <div className="min-h-screen bg-app-bg p-2 md:p-6 text-app-text font-sans overflow-x-hidden">
+    <div className="min-h-screen bg-app-bg p-3 sm:p-4 md:p-6 text-app-text font-sans overflow-x-hidden">
       
       {/* HEADER */}
-      <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between border-b border-app-muted/20 pb-4 gap-4">
-          <h1 className="text-2xl font-bold text-app-text">KÜCHE</h1>
-           <div className="flex gap-4">
-            <a href={restaurantHomeHref} className="text-sm bg-app-card text-app-text border border-app-muted/30 px-4 py-2 rounded hover:bg-app-muted/20 transition-colors">Home</a>
-           <div className="text-sm bg-app-card text-app-text border border-app-muted/30 px-4 py-2 rounded">
+      <div className="sticky top-0 z-20 -mx-3 mb-4 flex items-center justify-between gap-3 border-b border-app-muted/20 bg-app-bg/95 px-3 pb-3 pt-1 backdrop-blur sm:-mx-4 sm:px-4 md:static md:mx-0 md:bg-transparent md:px-0 md:pt-0">
+          <h1 className="text-xl md:text-2xl font-bold text-app-text">KÜCHE</h1>
+           <div className="flex shrink-0 gap-2">
+            <a href={restaurantHomeHref} className="flex h-10 items-center text-sm bg-app-card text-app-text border border-app-muted/30 px-4 rounded hover:bg-app-muted/20 transition-colors">Home</a>
+           <div className="flex h-10 items-center text-sm bg-app-card text-app-text border border-app-muted/30 px-4 rounded">
             {currentTime || "--:--"}
            </div>
           </div>
@@ -581,15 +586,15 @@ function KitchenContent() {
       {/* DRAG AND DROP BEREICH */}
       {isBrowser && (
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-auto md:h-[calc(100vh-140px)]">
+          <div className="grid grid-cols-1 gap-3 pb-6 md:grid-cols-3 md:gap-4 md:h-[calc(100vh-140px)] md:pb-0">
             
             {Object.entries(COLUMNS).map(([columnId, colConfig]) => {
               const columnCourseGroups = courseGroups.filter(g => g.status === columnId);
 
               return (
-                <div key={columnId} className="flex flex-col rounded-xl bg-app-card/50 border border-app-muted/20 h-full min-h-0">
+                <div key={columnId} className="flex h-auto min-h-[220px] flex-col rounded-xl bg-app-card/50 border border-app-muted/20 md:h-full md:min-h-0">
                   
-                  <h2 className={`p-4 text-xl font-bold ${colConfig.color} border-b ${colConfig.border} bg-app-card/80 rounded-t-xl flex justify-between items-center`}>
+                  <h2 className={`p-3 md:p-4 text-lg md:text-xl font-bold ${colConfig.color} border-b ${colConfig.border} bg-app-card/80 rounded-t-xl flex justify-between items-center`}>
                     {colConfig.title}
                     <span className="text-xs bg-app-bg px-2 py-1 rounded-full text-app-muted">{columnCourseGroups.length}</span>
                   </h2>
@@ -599,10 +604,10 @@ function KitchenContent() {
                       <div
                         {...provided.droppableProps}
                         ref={provided.innerRef}
-                        className={`flex-1 p-2 overflow-y-auto custom-scrollbar transition-colors ${snapshot.isDraggingOver ? 'bg-app-primary/10' : ''}`}
+                        className={`custom-scrollbar min-h-[120px] p-2 overflow-visible transition-colors md:flex-1 md:overflow-y-auto ${snapshot.isDraggingOver ? 'bg-app-primary/10' : ''}`}
                       >
                         {columnCourseGroups.map((courseGroup, index) => (
-                          <Draggable key={courseGroup.key} draggableId={courseGroup.key} index={index}>
+                          <Draggable key={courseGroup.key} draggableId={courseGroup.key} index={index} isDragDisabled={isMobile}>
                             {(provided, snapshot) => (
                               <div
                                 ref={provided.innerRef}
@@ -689,7 +694,7 @@ function KitchenContent() {
                         ))}
                         {provided.placeholder}
                         {columnCourseGroups.length === 0 && !snapshot.isDraggingOver && (
-                          <div className="h-full flex items-center justify-center text-slate-600 italic opacity-50">Leer</div>
+                          <div className="flex min-h-[120px] items-center justify-center text-slate-600 italic opacity-50 md:h-full">Leer</div>
                         )}
                       </div>
                     )}

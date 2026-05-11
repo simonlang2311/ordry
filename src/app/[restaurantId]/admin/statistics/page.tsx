@@ -81,7 +81,7 @@ function StatisticsContent() {
 
     const fetchStats = async () => {
       try {
-        const response = await fetch('/api/statistics');
+        const response = await fetch(`/api/statistics?restaurantId=${encodeURIComponent(restaurantId)}`);
         if (!response.ok) throw new Error('Fehler beim Laden der Statistiken');
         const data = await response.json();
         setStats(data);
@@ -93,7 +93,7 @@ function StatisticsContent() {
     };
 
     fetchStats();
-  }, [features.statisticsEnabled, featuresLoaded]);
+  }, [features.statisticsEnabled, featuresLoaded, restaurantId]);
 
   if (featuresLoaded && !features.statisticsEnabled) {
     notFound();

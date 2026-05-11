@@ -133,6 +133,16 @@ html[data-theme="modern"] {
   --scrollbar: #a89f92 !important;
 }
 
+html[data-theme="custom"] {
+  --bg-main: var(--custom-bg-main, #f8f9fa) !important;
+  --bg-card: var(--custom-bg-card, #ffffff) !important;
+  --text-main: var(--custom-text-main, #275D7B) !important;
+  --text-muted: var(--custom-text-muted, #FF6633) !important;
+  --primary: var(--custom-primary, #275D7B) !important;
+  --accent: var(--custom-accent, #FF6633) !important;
+  --scrollbar: var(--custom-scrollbar, #FF6633) !important;
+}
+
 html, body, #__next {
   background-color: var(--bg-main);
   color: var(--text-main);

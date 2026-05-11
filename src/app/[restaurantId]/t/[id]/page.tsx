@@ -2,8 +2,8 @@
 
 import { useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { fetchCurrentCustomerTokenForTable, saveToken } from "@/lib/tokenManager";
 import { supabase } from "@/lib/supabase";
-import { generateToken } from "@/lib/tokenManager";
 
 export default function RedirectPage() {
   const params = useParams();
@@ -20,37 +20,10 @@ export default function RedirectPage() {
       }
 
       try {
-        const { data, error } = await supabase
-          .from('tables')
-          .select('current_token')
-          .eq('label', tableId)
-          .eq('restaurant_id', restaurantId)
-          .maybeSingle();
+        const customerToken = await fetchCurrentCustomerTokenForTable(tableId, supabase, restaurantId);
+        saveToken(tableId, customerToken, restaurantId);
 
-        if (error) {
-          console.error('[Redirect] Fehler beim Token-Abruf:', error);
-          router.push('/');
-          return;
-        }
-
-        if (!data) {
-          console.error('[Redirect] Tisch nicht gefunden:', { tableId, restaurantId });
-          router.push('/');
-          return;
-        }
-
-        let token = data.current_token;
-
-        if (!token) {
-          token = generateToken();
-          await supabase
-            .from('tables')
-            .update({ current_token: token })
-            .eq('label', tableId)
-            .eq('restaurant_id', restaurantId);
-        }
-
-        router.replace(`/${encodeURIComponent(restaurantId)}/table/${encodeURIComponent(tableId)}?token=${encodeURIComponent(token)}`);
+        router.replace(`/${encodeURIComponent(restaurantId)}/table/${encodeURIComponent(tableId)}?token=${encodeURIComponent(customerToken)}`);
       } catch (err) {
         console.error('[Redirect] Unerwarteter Fehler:', err);
         router.push('/');

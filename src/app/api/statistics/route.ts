@@ -10,9 +10,19 @@ type StatisticsOrder = {
   total_price?: number | null;
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     assertSupabaseConfigured();
+    const { searchParams } = new URL(request.url);
+    const restaurantId = searchParams.get('restaurantId') || process.env.NEXT_PUBLIC_RESTAURANT_ID;
+
+    if (!restaurantId) {
+      return NextResponse.json(
+        { error: 'Restaurant-ID fehlt' },
+        { status: 400 }
+      );
+    }
+
     const ORDER_META_PREFIXES = ['[[shadow]]', '[[station:food]]', '[[station:drink]]'];
 
     const cleanDishName = (value: string) => {
@@ -32,13 +42,14 @@ export async function GET() {
 
     const isTrackableDish = (value: string) => {
       const normalized = value.trim().toUpperCase();
-      return normalized !== 'KELLNER GERUFEN';
+      return normalized !== 'KELLNER GERUFEN' && normalized !== 'RECHNUNG ANGEFORDERT';
     };
 
     const isVisibleOrderItem = (value: string) => {
       const trimmed = value.trim();
       if (!trimmed) return false;
       if (trimmed.includes('KELLNER')) return false;
+      if (trimmed.includes('RECHNUNG ANGEFORDERT')) return false;
       if (ORDER_META_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) return false;
       return true;
     };
@@ -47,7 +58,7 @@ export async function GET() {
     const { data: allOrders, error } = await supabase
       .from('orders')
       .select('*')
-      .eq('restaurant_id', process.env.NEXT_PUBLIC_RESTAURANT_ID)
+      .eq('restaurant_id', restaurantId)
       .eq('status', 'paid')
       .order('created_at', { ascending: true });
 
@@ -58,7 +69,7 @@ export async function GET() {
     const { data: allVisibleOrders, error: allVisibleOrdersError } = await supabase
       .from('orders')
       .select('*')
-      .eq('restaurant_id', process.env.NEXT_PUBLIC_RESTAURANT_ID)
+      .eq('restaurant_id', restaurantId)
       .eq('status', 'paid')
       .order('created_at', { ascending: false });
 

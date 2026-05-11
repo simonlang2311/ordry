@@ -516,6 +516,19 @@ export default function MenuEditor() {
     await saveCategoriesToDB(newCats);
   };
 
+  const moveCategory = async (categoryId: string, direction: -1 | 1) => {
+    const currentIndex = categories.findIndex((category) => category.id === categoryId);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= categories.length) return;
+
+    const reorderedCategories = [...categories];
+    const [movedCategory] = reorderedCategories.splice(currentIndex, 1);
+    reorderedCategories.splice(targetIndex, 0, movedCategory);
+
+    setCategories(reorderedCategories);
+    await saveCategoriesToDB(reorderedCategories);
+  };
+
   const startEditCategory = (category: Category) => {
     setEditingCategoryId(category.id);
     setEditCategoryLabel(category.label);
@@ -1500,7 +1513,7 @@ export default function MenuEditor() {
           >
             <div>
               <h2 className="text-xl font-bold mb-1 text-app-text">Kategorien verwalten</h2>
-              <p className="text-sm text-app-muted">Erstelle, prüfe und entferne Kategorien für deine Speisekarte.</p>
+              <p className="text-sm text-app-muted">Erstelle, sortiere, prüfe und entferne Kategorien für deine Speisekarte.</p>
             </div>
             <span
               className={`text-2xl text-app-muted transition-transform ${showCategoryManagementSection ? 'rotate-180' : ''}`}
@@ -1517,10 +1530,35 @@ export default function MenuEditor() {
                 <button onClick={addCategory} className="bg-app-primary text-white font-bold px-6 rounded-xl hover:brightness-110">Hinzufügen</button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {categories.map((cat) => (
+                {categories.map((cat, index) => (
                   <div key={cat.id} className="flex items-center justify-between p-3 bg-app-bg rounded-lg border border-app-muted/10 group">
-                    <span className="font-bold text-app-text">{cat.label}</span>
-                    <button onClick={() => deleteCategory(cat.id)} className="text-app-muted hover:text-app-danger opacity-0 group-hover:opacity-100 transition-opacity text-sm px-2">Entfernen</button>
+                    <div className="min-w-0">
+                      <span className="block truncate font-bold text-app-text">{cat.label}</span>
+                      <span className="text-xs font-semibold text-app-muted">Position {index + 1}</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => moveCategory(cat.id, -1)}
+                        disabled={index === 0}
+                        className="h-8 w-8 rounded-lg border border-app-muted/20 text-app-muted hover:border-app-primary hover:text-app-primary disabled:cursor-not-allowed disabled:opacity-30"
+                        aria-label={`${cat.label} nach oben verschieben`}
+                        title="Nach oben"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveCategory(cat.id, 1)}
+                        disabled={index === categories.length - 1}
+                        className="h-8 w-8 rounded-lg border border-app-muted/20 text-app-muted hover:border-app-primary hover:text-app-primary disabled:cursor-not-allowed disabled:opacity-30"
+                        aria-label={`${cat.label} nach unten verschieben`}
+                        title="Nach unten"
+                      >
+                        ↓
+                      </button>
+                      <button onClick={() => deleteCategory(cat.id)} className="text-app-muted hover:text-app-danger opacity-0 group-hover:opacity-100 transition-opacity text-sm px-2">Entfernen</button>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -113,11 +113,12 @@ export default function RestaurantPage() {
   const [tableInput, setTableInput] = useState("");
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [features, setFeatures] = useState<RestaurantFeatures>(DEFAULT_RESTAURANT_FEATURES);
   const [restaurantName, setRestaurantName] = useState("");
   const [tableSuggestions, setTableSuggestions] = useState<string[]>([]);
   const { branding } = useBranding();
-  const { isAuthenticated, isAuthInitialized, handlePasswordSubmit } = usePersonalAuth();
+  const { isAuthenticated, isAuthInitialized, handlePasswordSubmit, logout } = usePersonalAuth();
 
   const restaurantPath = (path: string) => `/${encodeURIComponent(restaurantId)}${path}`;
 
@@ -178,10 +179,6 @@ export default function RestaurantPage() {
 
   const handleTableRedirect = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!showPersonalActions) {
-      alert("Bitte zuerst mit dem Personal-Passwort anmelden.");
-      return;
-    }
     if (tableInput.trim()) {
       router.push(restaurantPath(`/t/${encodeURIComponent(tableInput.trim())}`));
     } else {
@@ -242,28 +239,20 @@ export default function RestaurantPage() {
             <input 
               type="text" 
               placeholder="Nr. oder Label" 
-              disabled={!showPersonalActions}
-              className="w-full bg-app-bg border border-app-primary/20 rounded-xl pl-16 pr-4 py-4 text-xl font-bold text-app-text focus:border-app-primary focus:ring-4 focus:ring-app-primary/10 outline-none transition-all placeholder-app-muted/70 disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full bg-app-bg border border-app-primary/20 rounded-xl pl-16 pr-4 py-4 text-xl font-bold text-app-text focus:border-app-primary focus:ring-4 focus:ring-app-primary/10 outline-none transition-all placeholder-app-muted/70"
               value={tableInput}
               onChange={(e) => setTableInput(e.target.value)}
-              autoFocus={isAuthenticated}
+              autoFocus
             />
           </div>
           <button 
             type="submit"
-            disabled={!showPersonalActions}
-            className="bg-app-primary hover:brightness-95 disabled:bg-app-muted/30 disabled:text-app-muted disabled:cursor-not-allowed text-white font-bold px-8 py-4 rounded-xl text-lg transition-transform active:scale-95 shadow-lg shadow-app-primary/20 flex items-center justify-center gap-2"
+            className="bg-app-primary hover:brightness-95 text-white font-bold px-8 py-4 rounded-xl text-lg transition-transform active:scale-95 shadow-lg shadow-app-primary/20 flex items-center justify-center gap-2"
           >
             <span>Los</span>
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
           </button>
         </form>
-
-        {!showPersonalActions && (
-          <div className="mt-4 rounded-xl border border-app-primary/15 bg-app-primary/10 px-4 py-3 text-sm font-semibold text-app-muted">
-            Dieser Bereich ist geschützt. Bitte melde dich mit dem Personal-Passwort an.
-          </div>
-        )}
         
         {/* Quick Links */}
         {tableSuggestions.length > 0 && (
@@ -272,9 +261,8 @@ export default function RestaurantPage() {
           {tableSuggestions.map(label => (
             <button
               key={label}
-              disabled={!showPersonalActions}
               onClick={() => router.push(restaurantPath(`/t/${encodeURIComponent(label)}`))}
-              className="text-xs bg-app-bg hover:bg-app-primary hover:text-white border border-app-primary/20 px-3 py-1 rounded-full text-app-muted transition-colors font-medium disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-app-bg disabled:hover:text-app-muted"
+              className="text-xs bg-app-bg hover:bg-app-primary hover:text-white border border-app-primary/20 px-3 py-1 rounded-full text-app-muted transition-colors font-medium"
             >
               Tisch {label}
             </button>
@@ -361,14 +349,29 @@ export default function RestaurantPage() {
               <label className="text-sm font-bold text-white/80 uppercase mb-2 block">
                 Passwort
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Passwort eingeben"
-                autoFocus
-                className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 text-white outline-none focus:border-white focus:ring-4 focus:ring-white/20 transition-all placeholder-white/50"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Passwort eingeben"
+                  autoFocus
+                  className="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-3 pr-12 text-white outline-none focus:border-white focus:ring-4 focus:ring-white/20 transition-all placeholder-white/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-white/75 hover:bg-white/15 hover:text-white"
+                  aria-label={showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                  title={showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                >
+                  <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+                    <circle cx="12" cy="12" r="3" />
+                    {showPassword && <path d="M4 4l16 16" />}
+                  </svg>
+                </button>
+              </div>
             </div>
 
             {passwordError && (
@@ -432,6 +435,16 @@ export default function RestaurantPage() {
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text flex flex-col items-center justify-center p-4 pb-14 font-sans relative overflow-hidden">
+      {showPersonalActions && (
+        <button
+          type="button"
+          onClick={logout}
+          className="absolute left-4 top-4 z-20 rounded-xl border border-app-primary/20 bg-app-card px-4 py-2 text-sm font-bold text-app-text shadow-lg shadow-app-text/5 transition-colors hover:bg-app-primary hover:text-white"
+        >
+          Logout
+        </button>
+      )}
+
       {/* LOGO AREA */}
       <div className="relative z-10 text-center mb-10">
         <div className="flex justify-center mb-4">

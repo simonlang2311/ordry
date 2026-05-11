@@ -57,7 +57,7 @@ const fetchInitialSettings = async (restaurantId?: string) => {
     settingsUrl.searchParams.set("select", "key,value");
     settingsUrl.searchParams.set(
       "key",
-      "in.(theme,font_family,logo_url,app_name,restaurant_link)"
+      "in.(theme,font_family,custom_theme_colors,logo_url,app_name,restaurant_link)"
     );
     settingsUrl.searchParams.set("restaurant_id", `eq.${restaurantId}`);
 

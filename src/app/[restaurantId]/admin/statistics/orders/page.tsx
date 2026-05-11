@@ -55,7 +55,7 @@ function StatisticsOrdersContent() {
 
     const fetchOrderList = async () => {
       try {
-        const response = await fetch('/api/statistics');
+        const response = await fetch(`/api/statistics?restaurantId=${encodeURIComponent(restaurantId)}`);
         if (!response.ok) throw new Error('Fehler beim Laden der Bestellliste');
         const data: StatisticsOrderListResponse = await response.json();
         setOrders(data.orderList || []);
@@ -67,7 +67,7 @@ function StatisticsOrdersContent() {
     };
 
     fetchOrderList();
-  }, [features.statisticsEnabled, featuresLoaded]);
+  }, [features.statisticsEnabled, featuresLoaded, restaurantId]);
 
   if (featuresLoaded && !features.statisticsEnabled) {
     notFound();

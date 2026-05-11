@@ -7,10 +7,7 @@ import { Logo } from '@/components/Branding';
 import { DEFAULT_RESTAURANT_FEATURES, RestaurantFeatures, loadRestaurantFeatures } from "@/lib/features";
 import { 
   validateAndRedirectToken,
-  createNewTokenForTable,
-  saveToken,
-  clearToken,
-  getToken
+  createNewCustomerTokenForTable
 } from "@/lib/tokenManager";
 import { usePersonalAuth } from "@/lib/usePersonalAuth";
 
@@ -279,7 +276,7 @@ export default function TablePage() {
 
         if (result.shouldRedirect && result.validToken) {
           console.log('[TablePage] Redirecting with new token:', result.validToken);
-          router.push(`/table/${encodeURIComponent(tableId)}?token=${encodeURIComponent(result.validToken)}`);
+          router.push(`/${encodeURIComponent(restaurantId)}/table/${encodeURIComponent(tableId)}?token=${encodeURIComponent(result.validToken)}`);
           return;
         }
 
@@ -294,16 +291,17 @@ export default function TablePage() {
       } catch (err) {
         console.error('[TablePage] Error validating token:', err);
         setTokenState({
-          isValid: true,
+          isValid: false,
           currentToken: null,
-          isInitialized: true
+          isInitialized: true,
+          accessDenied: true
         });
       }
     };
 
     const timeoutId = setTimeout(() => {
       console.warn('[TablePage] token validation timed out');
-      setTokenState({ isValid: true, currentToken: null, isInitialized: true });
+      setTokenState({ isValid: false, currentToken: null, isInitialized: true, accessDenied: true });
     }, 3000);
 
     validateAccess().finally(() => clearTimeout(timeoutId));
@@ -649,7 +647,7 @@ export default function TablePage() {
   };
 
   const getItemPrice = (itemStr: string) => {
-    if (itemStr.includes("KELLNER")) return 0;
+    if (itemStr.includes("KELLNER") || itemStr.includes("RECHNUNG ANGEFORDERT")) return 0;
     // Verbessertes Regex, um Namen mit Klammern wie "Corona (0,3l)" korrekt zu erfassen
     const match = itemStr.match(/^(\d+)x\s(.+)$/);
     if (match) {
@@ -761,6 +759,17 @@ export default function TablePage() {
   };
 
   const placeOrder = async () => {
+    const accessCheck = await validateAndRedirectToken(tableId, tokenState.currentToken || tokenFromUrl, supabase, restaurantId);
+    if (!accessCheck.isValid) {
+      setTokenState({
+        isValid: false,
+        currentToken: null,
+        isInitialized: true,
+        accessDenied: true
+      });
+      return;
+    }
+
     const itemsList = cart.map(item => {
       let text = `${item.quantity}x ${item.name}`;
       if (item.desc) text += ` - ${item.desc}`;
@@ -782,7 +791,7 @@ export default function TablePage() {
     if (data && !tokenState.currentToken) {
       // Erste Bestellung überhaupt - erstelle Token
       console.log('[TablePage] Erste Bestellung - erstelle neuen Token');
-      const newToken = await createNewTokenForTable(tableId, supabase, restaurantId);
+      const newToken = await createNewCustomerTokenForTable(tableId, supabase, restaurantId);
       setTokenState({
         isValid: true,
         currentToken: newToken,
@@ -796,8 +805,35 @@ export default function TablePage() {
   };
 
   const callWaiter = async () => {
+    const accessCheck = await validateAndRedirectToken(tableId, tokenState.currentToken || tokenFromUrl, supabase, restaurantId);
+    if (!accessCheck.isValid) {
+      setTokenState({
+        isValid: false,
+        currentToken: null,
+        isInitialized: true,
+        accessDenied: true
+      });
+      return;
+    }
+
     await supabase.from('orders').insert({ restaurant_id: restaurantId, table_id: tableId, items: ["KELLNER GERUFEN"], status: 'new' });
     alert("Kellner wurde gerufen!"); fetchOrders();
+  };
+
+  const requestBill = async () => {
+    const accessCheck = await validateAndRedirectToken(tableId, tokenState.currentToken || tokenFromUrl, supabase, restaurantId);
+    if (!accessCheck.isValid) {
+      setTokenState({
+        isValid: false,
+        currentToken: null,
+        isInitialized: true,
+        accessDenied: true
+      });
+      return;
+    }
+
+    await supabase.from('orders').insert({ restaurant_id: restaurantId, table_id: tableId, items: ["RECHNUNG ANGEFORDERT"], status: 'new' });
+    alert("Rechnung wurde angefordert!"); fetchOrders();
   };
 
   // --- SPLIT LOGIC ---
@@ -812,7 +848,7 @@ export default function TablePage() {
     }));
 
     const availableItems: { name: string, originalName: string, price: number, availableIds: string[] }[] = [];
-    const openOrders = myOrderHistory.filter(o => o.status !== 'pay_split' && !o.items.some(i => i.includes("KELLNER")));
+    const openOrders = myOrderHistory.filter(o => o.status !== 'pay_split' && !o.items.some(i => i.includes("KELLNER") || i.includes("RECHNUNG ANGEFORDERT")));
 
     openOrders.forEach(order => {
       order.items.forEach((itemStr, itemIndex) => {
@@ -1047,7 +1083,7 @@ export default function TablePage() {
           
           {/* Buttons */}
           <div className="flex items-center gap-2 md:flex-shrink-0">
-            <button onClick={callWaiter} className="flex-1 md:flex-none bg-app-card text-app-primary border border-app-primary px-3 md:px-4 py-2 rounded-lg font-bold text-sm hover:bg-app-primary hover:text-white transition-colors shadow-sm">Kellner</button>
+            <button onClick={callWaiter} className="flex-1 md:flex-none bg-app-card text-app-primary border border-app-primary px-3 md:px-4 py-2 rounded-lg font-bold text-sm hover:bg-app-primary hover:text-white transition-colors shadow-sm">Kellner rufen</button>
             <button onClick={() => { setShowOrderHistory(true); resetSplit(); }} className="flex-1 md:flex-none bg-app-card text-app-primary border border-app-primary px-3 md:px-4 py-2 rounded-lg font-bold text-sm hover:bg-app-primary hover:text-white transition-colors shadow-sm">Rechnung</button>
           </div>
         </div>
@@ -1437,9 +1473,14 @@ export default function TablePage() {
                       <span className="inline-flex items-baseline gap-1 whitespace-nowrap text-app-accent">{rawTableTotal.toFixed(2).replace('.', ',')} € <span className="text-[9px] md:text-[10px] font-bold">inkl. MwSt</span></span>
                     </div>
                   </div>
-                  <button onClick={() => setIsSplittingMode(true)} className="w-full py-4 rounded-xl font-bold border-2 border-app-primary text-app-primary hover:bg-app-primary/10 transition-colors">
-                    Rechnung aufteilen
-                  </button>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button onClick={() => setIsSplittingMode(true)} className="py-4 rounded-xl font-bold border-2 border-app-primary text-app-primary hover:bg-app-primary/10 transition-colors">
+                      Rechnung aufteilen
+                    </button>
+                    <button onClick={requestBill} className="py-4 rounded-xl font-bold bg-app-accent text-white shadow-lg hover:brightness-110 transition-colors">
+                      Ich möchte zahlen
+                    </button>
+                  </div>
                 </>
               ) : (
                 <>

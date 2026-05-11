@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { FONT_MAP } from "@/lib/appearance";
+import { applyCustomThemeColors, CUSTOM_THEME_SETTINGS_KEY, FONT_MAP, parseCustomThemeColors } from "@/lib/appearance";
 import { RESTAURANT_FEATURES_KEY, parseRestaurantFeatures } from "@/lib/features";
 
 export default function ThemeWrapper({
@@ -41,7 +41,7 @@ export default function ThemeWrapper({
       let query = supabase
         .from('settings')
         .select('key, value')
-        .in('key', ['theme', 'font_family', RESTAURANT_FEATURES_KEY]);
+        .in('key', ['theme', 'font_family', CUSTOM_THEME_SETTINGS_KEY, RESTAURANT_FEATURES_KEY]);
 
       if (restaurantId) {
         query = query.eq('restaurant_id', restaurantId);
@@ -62,6 +62,7 @@ export default function ThemeWrapper({
       data?.forEach((setting) => {
         if (setting.key === 'theme' && setting.value && !features.themesLockedToOrdry) setTheme(setting.value);
         if (setting.key === 'font_family' && setting.value) setFontFamily(setting.value);
+        if (setting.key === CUSTOM_THEME_SETTINGS_KEY) applyCustomThemeColors(parseCustomThemeColors(setting.value));
       });
     };
     fetchSettings();
@@ -90,6 +91,9 @@ export default function ThemeWrapper({
           }
           if (newData.key === 'font_family' && newData.value) {
             setFontFamily(newData.value);
+          }
+          if (newData.key === CUSTOM_THEME_SETTINGS_KEY) {
+            applyCustomThemeColors(parseCustomThemeColors(newData.value));
           }
         }
       )

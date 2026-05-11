@@ -5,6 +5,14 @@ import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { supabase } from "@/lib/supabase";
+import {
+  applyCustomThemeColors,
+  CUSTOM_THEME_FIELDS,
+  CUSTOM_THEME_SETTINGS_KEY,
+  CustomThemeColors,
+  DEFAULT_CUSTOM_THEME_COLORS,
+  parseCustomThemeColors,
+} from "@/lib/appearance";
 import { DEFAULT_RESTAURANT_FEATURES, RestaurantFeatures, loadRestaurantFeatures } from "@/lib/features";
 
 const FONT_FAMILY_MAP: Record<string, string> = {
@@ -23,6 +31,7 @@ function PersonalContent() {
   const [uploading, setUploading] = useState(false);
   const [currentTheme, setCurrentTheme] = useState("modern");
   const [currentFont, setCurrentFont] = useState("geist");
+  const [customColors, setCustomColors] = useState<CustomThemeColors>(DEFAULT_CUSTOM_THEME_COLORS);
   const [features, setFeatures] = useState<RestaurantFeatures>(DEFAULT_RESTAURANT_FEATURES);
   const [showLogoSection, setShowLogoSection] = useState(false);
   const [showThemeSection, setShowThemeSection] = useState(false);
@@ -125,7 +134,7 @@ function PersonalContent() {
         const { data, error } = await supabase
           .from("settings")
           .select("key, value")
-          .in("key", ["logo_url", "theme", "font_family"])
+          .in("key", ["logo_url", "theme", "font_family", CUSTOM_THEME_SETTINGS_KEY])
           .eq("restaurant_id", restaurantId);
 
         if (error) {
@@ -142,6 +151,11 @@ function PersonalContent() {
           }
           if (setting.key === "font_family") {
             setCurrentFont(setting.value || "geist");
+          }
+          if (setting.key === CUSTOM_THEME_SETTINGS_KEY) {
+            const nextColors = parseCustomThemeColors(setting.value);
+            setCustomColors(nextColors);
+            applyCustomThemeColors(nextColors);
           }
         });
       } catch (error) {
@@ -172,6 +186,7 @@ function PersonalContent() {
   const saveTheme = async (themeName: string) => {
     setStatus("Speichere...");
     setCurrentTheme(themeName);
+    if (themeName === "custom") applyCustomThemeColors(customColors);
 
     localStorage.setItem("theme", themeName);
     window.dispatchEvent(new Event("storage"));
@@ -184,6 +199,35 @@ function PersonalContent() {
       setStatus("Fehler: " + error.message);
     } else {
       showTemporaryStatus("Design gespeichert");
+    }
+  };
+
+  const updateCustomColor = (key: keyof CustomThemeColors, value: string) => {
+    const nextColors = { ...customColors, [key]: value };
+    setCustomColors(nextColors);
+    if (currentTheme === "custom") applyCustomThemeColors(nextColors);
+  };
+
+  const saveCustomThemeColors = async (activate = false) => {
+    setStatus("Speichere...");
+    applyCustomThemeColors(customColors);
+
+    const { error } = await supabase
+      .from("settings")
+      .upsert(
+        { restaurant_id: restaurantId, key: CUSTOM_THEME_SETTINGS_KEY, value: JSON.stringify(customColors) },
+        { onConflict: "key,restaurant_id" }
+      );
+
+    if (error) {
+      setStatus("Fehler: " + error.message);
+      return;
+    }
+
+    if (activate || currentTheme === "custom") {
+      await saveTheme("custom");
+    } else {
+      showTemporaryStatus("Farben gespeichert");
     }
   };
 
@@ -359,6 +403,17 @@ function PersonalContent() {
       activeText: "text-gray-600",
       swatches: ["bg-white border border-gray-300", "bg-[#6b7280]", "bg-[#374151]"],
     },
+    {
+      key: "custom",
+      title: "Benutzerdefiniert",
+      description: "Vier eigene Farben für Hintergrund, Karten, Hauptfarbe und Akzent.",
+      container: "bg-app-bg text-app-text",
+      active: "border-app-accent ring-4 ring-app-accent/20",
+      inactive: "border-app-muted/20 hover:border-app-accent",
+      text: "text-app-muted",
+      activeText: "text-app-accent",
+      swatches: [],
+    },
   ];
   const availableThemes = features.themesLockedToOrdry
     ? themes.filter((theme) => theme.key === "ordry")
@@ -481,14 +536,61 @@ function PersonalContent() {
                       <h3 className="text-2xl font-bold mb-2">{theme.title}</h3>
                       <p className={`${theme.text} text-sm`}>{theme.description}</p>
                       <div className="mt-4 flex gap-2">
-                        {theme.swatches.map((swatchClass) => (
-                          <span key={swatchClass} className={`w-8 h-8 rounded-full ${swatchClass}`}></span>
-                        ))}
+                        {theme.key === "custom"
+                          ? CUSTOM_THEME_FIELDS.map((field) => (
+                              <span
+                                key={field.key}
+                                className="h-8 w-8 rounded-full border border-app-muted/30"
+                                style={{ backgroundColor: customColors[field.key] }}
+                              />
+                            ))
+                          : theme.swatches.map((swatchClass) => (
+                              <span key={swatchClass} className={`w-8 h-8 rounded-full ${swatchClass}`}></span>
+                            ))}
                       </div>
                       {currentTheme === theme.key && <p className={`${theme.activeText} text-xs mt-3`}>Aktiv</p>}
                     </button>
                   ))}
                 </div>
+
+                {!features.themesLockedToOrdry && (
+                  <div className="mt-6 rounded-2xl border border-app-muted/20 bg-app-bg p-4">
+                    <div className="mb-4">
+                      <h3 className="text-sm font-bold text-app-text">Benutzerdefinierte Farben</h3>
+                      <p className="mt-1 text-xs text-app-muted">Wähle vier Farben aus der Farbpalette und speichere sie als eigenes Theme.</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                      {CUSTOM_THEME_FIELDS.map((field) => (
+                        <label key={field.key} className="rounded-xl border border-app-muted/20 bg-app-card p-3">
+                          <span className="mb-2 block text-xs font-bold uppercase text-app-muted">{field.label}</span>
+                          <input
+                            type="color"
+                            value={customColors[field.key]}
+                            onChange={(event) => updateCustomColor(field.key, event.target.value)}
+                            className="h-12 w-full cursor-pointer rounded-lg border border-app-muted/20 bg-transparent"
+                          />
+                          <span className="mt-2 block text-xs font-mono text-app-muted">{customColors[field.key]}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => saveCustomThemeColors(false)}
+                        className="rounded-xl border border-app-primary px-4 py-3 text-sm font-bold text-app-primary hover:bg-app-primary/10"
+                      >
+                        Farben speichern
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => saveCustomThemeColors(true)}
+                        className="rounded-xl bg-app-accent px-4 py-3 text-sm font-bold text-white shadow-lg hover:brightness-110"
+                      >
+                        Benutzerdefiniert aktivieren
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="mt-6 rounded-2xl border border-app-muted/20 bg-app-bg p-4">
                   <label className="mb-2 block text-sm font-bold text-app-text">Schriftart</label>

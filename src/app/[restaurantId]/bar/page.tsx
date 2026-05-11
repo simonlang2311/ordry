@@ -41,6 +41,7 @@ function BarContent() {
   const [menuTypes, setMenuTypes] = useState<Record<string, MenuItemType>>({});
   const [drinksTarget, setDrinksTarget] = useState<"bar" | "kitchen">("bar");
   const [isBrowser, setIsBrowser] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [courseStatus, setCourseStatus] = useState<Record<string, CourseStatus>>({});
   const [currentTime, setCurrentTime] = useState("");
   const pendingCourseStatusRef = useRef<Record<string, CourseStatus>>({});
@@ -128,6 +129,9 @@ function BarContent() {
   useEffect(() => {
     setIsBrowser(true);
     setCurrentTime(formatCurrentTime());
+    const updateIsMobile = () => setIsMobile(window.innerWidth < 768);
+    updateIsMobile();
+    window.addEventListener("resize", updateIsMobile);
 
     const clockInterval = window.setInterval(() => {
       setCurrentTime(formatCurrentTime());
@@ -210,6 +214,7 @@ function BarContent() {
     }, 3000);
 
     return () => {
+      window.removeEventListener("resize", updateIsMobile);
       window.clearInterval(clockInterval);
       clearInterval(pollId);
       supabase.removeChannel(channel);
@@ -516,12 +521,12 @@ function BarContent() {
   };
 
   return (
-    <div className="min-h-screen bg-app-bg p-2 md:p-6 text-app-text font-sans overflow-hidden">
-      <div className="mb-4 flex flex-col md:flex-row md:items-center justify-between border-b border-app-muted/20 pb-4 gap-4">
-        <h1 className="text-2xl font-bold text-app-text">BAR</h1>
-        <div className="flex gap-4">
-          <a href={`/${restaurantId}`} className="text-sm bg-app-card text-app-text border border-app-muted/30 px-4 py-2 rounded hover:bg-app-muted/20 transition-colors">Home</a>
-          <div className="text-sm bg-app-card text-app-text border border-app-muted/30 px-4 py-2 rounded">
+    <div className="min-h-screen bg-app-bg p-3 sm:p-4 md:p-6 text-app-text font-sans overflow-x-hidden">
+      <div className="sticky top-0 z-20 -mx-3 mb-4 flex items-center justify-between gap-3 border-b border-app-muted/20 bg-app-bg/95 px-3 pb-3 pt-1 backdrop-blur sm:-mx-4 sm:px-4 md:static md:mx-0 md:bg-transparent md:px-0 md:pt-0">
+        <h1 className="text-xl md:text-2xl font-bold text-app-text">BAR</h1>
+        <div className="flex shrink-0 gap-2">
+          <a href={`/${restaurantId}`} className="flex h-10 items-center text-sm bg-app-card text-app-text border border-app-muted/30 px-4 rounded hover:bg-app-muted/20 transition-colors">Home</a>
+          <div className="flex h-10 items-center text-sm bg-app-card text-app-text border border-app-muted/30 px-4 rounded">
             {currentTime || "--:--"}
           </div>
         </div>
@@ -529,13 +534,13 @@ function BarContent() {
 
       {isBrowser && (
         <DragDropContext onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-auto md:h-[calc(100vh-140px)]">
+          <div className="grid grid-cols-1 gap-3 pb-6 md:grid-cols-2 md:gap-4 md:h-[calc(100vh-140px)] md:pb-0">
             {Object.entries(COLUMNS).map(([columnId, colConfig]) => {
               const columnOrders = barOrders.filter(o => o.status === columnId);
 
               return (
-                <div key={columnId} className="flex flex-col rounded-xl bg-app-card/50 border border-app-muted/20 h-full min-h-0">
-                  <h2 className={`p-4 text-xl font-bold ${colConfig.color} border-b ${colConfig.border} bg-app-card/80 rounded-t-xl flex justify-between items-center`}>
+                <div key={columnId} className="flex h-auto min-h-[220px] flex-col rounded-xl bg-app-card/50 border border-app-muted/20 md:h-full md:min-h-0">
+                  <h2 className={`p-3 md:p-4 text-lg md:text-xl font-bold ${colConfig.color} border-b ${colConfig.border} bg-app-card/80 rounded-t-xl flex justify-between items-center`}>
                     {colConfig.title}
                     <span className="text-xs bg-app-bg px-2 py-1 rounded-full text-app-muted">{columnOrders.length}</span>
                   </h2>
@@ -545,10 +550,10 @@ function BarContent() {
                       <div
                         {...provided.droppableProps}
                         ref={provided.innerRef}
-                        className={`flex-1 p-2 overflow-y-auto custom-scrollbar transition-colors ${snapshot.isDraggingOver ? "bg-app-primary/10" : ""}`}
+                        className={`custom-scrollbar min-h-[120px] p-2 overflow-visible transition-colors md:flex-1 md:overflow-y-auto ${snapshot.isDraggingOver ? "bg-app-primary/10" : ""}`}
                       >
                         {columnOrders.map((order, index) => (
-                          <Draggable key={order.id} draggableId={String(order.id)} index={index}>
+                          <Draggable key={order.id} draggableId={String(order.id)} index={index} isDragDisabled={isMobile}>
                             {(provided, snapshot) => (
                               <div
                                 ref={provided.innerRef}

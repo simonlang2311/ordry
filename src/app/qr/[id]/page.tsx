@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { validateAndRedirectToken } from "@/lib/tokenManager";
+import { createNewCustomerTokenForTable, validateQrToken } from "@/lib/tokenManager";
 
 export default function QRRedirectPage() {
   const params = useParams();
@@ -21,15 +21,44 @@ export default function QRRedirectPage() {
       }
 
       try {
-        const result = await validateAndRedirectToken(tableId, providedToken, supabase, process.env.NEXT_PUBLIC_RESTAURANT_ID || 'demo-restaurant-1');
+        if (providedToken) {
+          const { data: tokenTable, error: tokenLookupError } = await supabase
+            .from('tables')
+            .select('label, restaurant_id')
+            .eq('label', tableId)
+            .eq('current_token', providedToken)
+            .maybeSingle();
 
-        if (!result.isValid) {
+          if (tokenLookupError) {
+            console.error('[QR Redirect] Fehler beim Restaurant-Lookup:', tokenLookupError);
+          }
+
+          if (tokenTable?.restaurant_id) {
+            const isValidQr = await validateQrToken(tableId, providedToken, supabase, tokenTable.restaurant_id);
+
+            if (!isValidQr) {
+              console.warn('[QR Redirect] Ungültiger oder abgelaufener QR-Code für Tisch:', tableId);
+              setInvalidQr(true);
+              return;
+            }
+
+            await createNewCustomerTokenForTable(tokenTable.label || tableId, supabase, tokenTable.restaurant_id);
+            router.replace(`/${encodeURIComponent(tokenTable.restaurant_id)}/t/${encodeURIComponent(tokenTable.label || tableId)}`);
+            return;
+          }
+        }
+
+        const fallbackRestaurantId = process.env.NEXT_PUBLIC_RESTAURANT_ID || 'demo-restaurant-1';
+        const isValidQr = await validateQrToken(tableId, providedToken, supabase, fallbackRestaurantId);
+
+        if (!isValidQr) {
           console.warn('[QR Redirect] Ungültiger oder abgelaufener QR-Code für Tisch:', tableId);
           setInvalidQr(true);
           return;
         }
 
-        router.replace(`/t/${encodeURIComponent(tableId)}`);
+        await createNewCustomerTokenForTable(tableId, supabase, fallbackRestaurantId);
+        router.replace(`/${encodeURIComponent(fallbackRestaurantId)}/t/${encodeURIComponent(tableId)}`);
       } catch (error) {
         console.error('[QR Redirect] Unerwarteter Fehler:', error);
         setInvalidQr(true);

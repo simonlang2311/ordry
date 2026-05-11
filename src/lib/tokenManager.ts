@@ -20,6 +20,7 @@ export interface OrderRecord {
 }
 
 const TOKEN_KEY = 'ordry_token';
+const CUSTOMER_TOKEN_SETTINGS_KEY = 'table_customer_tokens';
 
 /**
  * Generiert einen neuen Token (UUID)
@@ -187,6 +188,128 @@ export const getCurrentTableToken = async (
   }
 };
 
+export const validateQrToken = async (
+  tableId: string,
+  providedToken: string | null,
+  supabase: any,
+  restaurantId: string
+): Promise<boolean> => {
+  if (!providedToken) return false;
+
+  const currentQrToken = await getCurrentTableToken(tableId, supabase, restaurantId);
+  return currentQrToken === providedToken;
+};
+
+type CustomerTokenMap = Record<string, string | string[]>;
+
+const getCustomerTokenMap = async (
+  supabase: any,
+  restaurantId: string
+): Promise<CustomerTokenMap> => {
+  const { data, error } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('restaurant_id', restaurantId)
+    .eq('key', CUSTOMER_TOKEN_SETTINGS_KEY)
+    .maybeSingle();
+
+  if (error) {
+    console.error('[TokenManager] Fehler beim Laden der Kunden-Tokens:', error);
+    return {};
+  }
+
+  if (!data?.value) return {};
+
+  try {
+    const parsed = JSON.parse(data.value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    console.error('[TokenManager] Kunden-Tokens konnten nicht gelesen werden:', error);
+    return {};
+  }
+};
+
+const saveCustomerTokenMap = async (
+  tokenMap: CustomerTokenMap,
+  supabase: any,
+  restaurantId: string
+): Promise<boolean> => {
+  const { error } = await supabase
+    .from('settings')
+    .upsert(
+      { restaurant_id: restaurantId, key: CUSTOMER_TOKEN_SETTINGS_KEY, value: JSON.stringify(tokenMap) },
+      { onConflict: 'key,restaurant_id' }
+    );
+
+  if (error) {
+    console.error('[TokenManager] Fehler beim Speichern der Kunden-Tokens:', error);
+    return false;
+  }
+
+  return true;
+};
+
+export const getCurrentCustomerToken = async (
+  tableId: string,
+  supabase: any,
+  restaurantId: string
+): Promise<string | null> => {
+  const tokenMap = await getCustomerTokenMap(supabase, restaurantId);
+  const tokenEntry = tokenMap[tableId];
+  if (Array.isArray(tokenEntry)) return tokenEntry[tokenEntry.length - 1] || null;
+  return tokenEntry || null;
+};
+
+export const isValidCustomerToken = async (
+  tableId: string,
+  providedToken: string,
+  supabase: any,
+  restaurantId: string
+): Promise<boolean> => {
+  const tokenMap = await getCustomerTokenMap(supabase, restaurantId);
+  const tokenEntry = tokenMap[tableId];
+  if (Array.isArray(tokenEntry)) return tokenEntry.includes(providedToken);
+  return tokenEntry === providedToken;
+};
+
+export const createNewCustomerTokenForTable = async (
+  tableId: string,
+  supabase: any,
+  restaurantId: string
+): Promise<string> => {
+  const tokenMap = await getCustomerTokenMap(supabase, restaurantId);
+  const newToken = generateToken();
+  const currentEntry = tokenMap[tableId];
+  const currentTokens = Array.isArray(currentEntry) ? currentEntry : (currentEntry ? [currentEntry] : []);
+  tokenMap[tableId] = [...currentTokens, newToken];
+  await saveCustomerTokenMap(tokenMap, supabase, restaurantId);
+  saveToken(tableId, newToken, restaurantId);
+  console.log('[TokenManager] Neuer Kunden-Token erstellt:', { tableId, restaurantId, token: newToken.substring(0, 8) + '...' });
+  return newToken;
+};
+
+export const invalidateCustomerTokensForTable = async (
+  tableId: string,
+  supabase: any,
+  restaurantId: string
+): Promise<boolean> => {
+  const tokenMap = await getCustomerTokenMap(supabase, restaurantId);
+  tokenMap[tableId] = [];
+  const saved = await saveCustomerTokenMap(tokenMap, supabase, restaurantId);
+  console.log('[TokenManager] Kunden-Tokens für Tisch invalidiert:', { tableId, restaurantId });
+  return saved;
+};
+
+export const fetchCurrentCustomerTokenForTable = async (
+  tableId: string,
+  supabase: any,
+  restaurantId: string
+): Promise<string> => {
+  const currentToken = await getCurrentCustomerToken(tableId, supabase, restaurantId);
+  if (currentToken) return currentToken;
+  return createNewCustomerTokenForTable(tableId, supabase, restaurantId);
+};
+
 /**
  * Speichert einen neuen Token für einen Tisch in der Datenbank
  */
@@ -197,15 +320,33 @@ export const saveTableToken = async (
   restaurantId: string
 ): Promise<boolean> => {
   try {
-    const isNumericId = /^[0-9]+$/.test(tableId);
-    const { error } = await supabase
+    let { data, error } = await supabase
       .from('tables')
       .update({ current_token: token })
       .eq('restaurant_id', restaurantId)
-      .eq(isNumericId ? 'id' : 'label', isNumericId ? Number(tableId) : tableId);
+      .eq('label', tableId)
+      .select('id')
+      .maybeSingle();
+
+    if (!data && !error && /^[0-9]+$/.test(tableId)) {
+      const result = await supabase
+        .from('tables')
+        .update({ current_token: token })
+        .eq('restaurant_id', restaurantId)
+        .eq('id', Number(tableId))
+        .select('id')
+        .maybeSingle();
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) {
       console.error('[TokenManager] Fehler beim Speichern des Tokens:', error);
+      return false;
+    }
+
+    if (!data) {
+      console.warn('[TokenManager] Kein Tisch zum Speichern des Tokens gefunden:', { tableId, restaurantId });
       return false;
     }
 
@@ -249,18 +390,18 @@ export const validateAndRedirectToken = async (
     return { isValid: false, shouldRedirect: false, validToken: null };
   }
 
-  // fetch the stored token
-  const currentDbToken = await getCurrentTableToken(tableId, supabase, restaurantId);
-  if (!currentDbToken) {
-    console.log('[TokenManager] Kein Token in DB – bitte QR-Code scannen');
+  // fetch the active customer token
+  const currentCustomerToken = await getCurrentCustomerToken(tableId, supabase, restaurantId);
+  if (!currentCustomerToken) {
+    console.log('[TokenManager] Kein Kunden-Token vorhanden – bitte QR-Code scannen');
     return { isValid: false, shouldRedirect: false, validToken: null };
   }
 
   // token must exactly match
-  if (candidateToken !== currentDbToken) {
-    console.log('[TokenManager] Token stimmt nicht überein');
+  if (!(await isValidCustomerToken(tableId, candidateToken, supabase, restaurantId))) {
+    console.log('[TokenManager] Kunden-Token stimmt nicht überein');
     console.log('[TokenManager] Provided:', candidateToken?.substring(0, 8) + '...');
-    console.log('[TokenManager] Expected:', currentDbToken?.substring(0, 8) + '...');
+    console.log('[TokenManager] Expected current token:', currentCustomerToken?.substring(0, 8) + '...');
     clearToken(restaurantId);
     return { isValid: false, shouldRedirect: false, validToken: null };
   }
@@ -313,28 +454,24 @@ export const fetchCurrentTokenForTable = async (
   supabase: any,
   restaurantId: string
 ): Promise<string | null> => {
-  // Zuerst versuchen, den bestehenden Wert zu lesen
-  const isNumericId = /^[0-9]+$/.test(tableId);
-  let data: any = null;
-  let error: any = null;
+  // Labels sind die öffentlich sichtbaren Tisch-IDs und können ebenfalls numerisch sein.
+  // Deshalb immer zuerst per label suchen und nur als Fallback per technischer id.
+  let result = await supabase
+    .from('tables')
+    .select('current_token')
+    .eq('restaurant_id', restaurantId)
+    .eq('label', tableId)
+    .maybeSingle();
 
-  if (isNumericId) {
-    const result = await supabase
+  let data: any = result.data;
+  let error: any = result.error;
+
+  if (!data && !error && /^[0-9]+$/.test(tableId)) {
+    result = await supabase
       .from('tables')
       .select('current_token')
       .eq('restaurant_id', restaurantId)
       .eq('id', Number(tableId))
-      .maybeSingle();
-    data = result.data;
-    error = result.error;
-  }
-
-  if (!data && !error) {
-    const result = await supabase
-      .from('tables')
-      .select('current_token')
-      .eq('restaurant_id', restaurantId)
-      .eq('label', tableId)
       .maybeSingle();
     data = result.data;
     error = result.error;
