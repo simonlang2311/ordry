@@ -13,6 +13,12 @@ import {
   parseRestaurantFeatures,
   saveRestaurantFeatures,
 } from "@/lib/features";
+import {
+  ADMIN_DASHBOARD_PASSWORD_KEY,
+  ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY,
+  DEFAULT_ADMIN_DASHBOARD_PASSWORD,
+  DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED,
+} from "@/lib/adminDashboardPassword";
 
 type Restaurant = {
   id: string;
@@ -23,6 +29,8 @@ type Restaurant = {
 
 type RestaurantOverview = {
   personalPassword: string;
+  adminDashboardPassword: string;
+  adminDashboardPasswordRequired: boolean;
   tableCount: number;
   lastOrderAt: string | null;
 };
@@ -63,6 +71,8 @@ const defaultSettingsFor = (restaurantId: string, personalPassword: string) => [
   { restaurant_id: restaurantId, key: "allergens_enabled", value: "true" },
   { restaurant_id: restaurantId, key: "drinks_target", value: "bar" },
   { restaurant_id: restaurantId, key: "personal_password", value: personalPassword },
+  { restaurant_id: restaurantId, key: ADMIN_DASHBOARD_PASSWORD_KEY, value: DEFAULT_ADMIN_DASHBOARD_PASSWORD },
+  { restaurant_id: restaurantId, key: ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY, value: String(DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED) },
   { restaurant_id: restaurantId, key: "app_name", value: "ordry" },
   { restaurant_id: restaurantId, key: "logo_url", value: "" },
   { restaurant_id: restaurantId, key: RESTAURANT_FEATURES_KEY, value: JSON.stringify(DEFAULT_RESTAURANT_FEATURES) },
@@ -224,6 +234,9 @@ export default function Home() {
   const [restaurantOverviews, setRestaurantOverviews] = useState<Record<string, RestaurantOverview>>({});
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
   const [savingPasswordId, setSavingPasswordId] = useState("");
+  const [adminPasswordDrafts, setAdminPasswordDrafts] = useState<Record<string, string>>({});
+  const [savingAdminPasswordId, setSavingAdminPasswordId] = useState("");
+  const [savingAdminPasswordRequiredId, setSavingAdminPasswordRequiredId] = useState("");
   const [loadingRestaurants, setLoadingRestaurants] = useState(true);
   const [restaurantName, setRestaurantName] = useState("");
   const [restaurantId, setRestaurantId] = useState("");
@@ -283,7 +296,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("settings")
       .select("restaurant_id, key, value")
-      .in("key", ["logo_url", "personal_password", RESTAURANT_FEATURES_KEY])
+      .in("key", ["logo_url", "personal_password", ADMIN_DASHBOARD_PASSWORD_KEY, ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY, RESTAURANT_FEATURES_KEY])
       .in("restaurant_id", restaurantIds);
 
     if (error) {
@@ -300,6 +313,8 @@ export default function Home() {
       featuresByRestaurant[restaurant.id] = DEFAULT_RESTAURANT_FEATURES;
       overviewsByRestaurant[restaurant.id] = {
         personalPassword: "Nicht gesetzt",
+        adminDashboardPassword: DEFAULT_ADMIN_DASHBOARD_PASSWORD,
+        adminDashboardPasswordRequired: DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED,
         tableCount: 0,
         lastOrderAt: null,
       };
@@ -319,6 +334,18 @@ export default function Home() {
         overviewsByRestaurant[setting.restaurant_id] = {
           ...overviewsByRestaurant[setting.restaurant_id],
           personalPassword: setting.value || "Nicht gesetzt",
+        };
+      }
+      if (setting.key === ADMIN_DASHBOARD_PASSWORD_KEY && setting.restaurant_id) {
+        overviewsByRestaurant[setting.restaurant_id] = {
+          ...overviewsByRestaurant[setting.restaurant_id],
+          adminDashboardPassword: setting.value || DEFAULT_ADMIN_DASHBOARD_PASSWORD,
+        };
+      }
+      if (setting.key === ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY && setting.restaurant_id) {
+        overviewsByRestaurant[setting.restaurant_id] = {
+          ...overviewsByRestaurant[setting.restaurant_id],
+          adminDashboardPasswordRequired: setting.value !== "false",
         };
       }
     });
@@ -433,6 +460,26 @@ export default function Home() {
               [restaurantId]: {
                 ...currentOverviews[restaurantId],
                 personalPassword: nextSetting.value || "Nicht gesetzt",
+              },
+            }));
+          }
+
+          if (nextSetting.key === ADMIN_DASHBOARD_PASSWORD_KEY) {
+            setRestaurantOverviews((currentOverviews) => ({
+              ...currentOverviews,
+              [restaurantId]: {
+                ...currentOverviews[restaurantId],
+                adminDashboardPassword: nextSetting.value || DEFAULT_ADMIN_DASHBOARD_PASSWORD,
+              },
+            }));
+          }
+
+          if (nextSetting.key === ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY) {
+            setRestaurantOverviews((currentOverviews) => ({
+              ...currentOverviews,
+              [restaurantId]: {
+                ...currentOverviews[restaurantId],
+                adminDashboardPasswordRequired: nextSetting.value !== "false",
               },
             }));
           }
@@ -844,6 +891,81 @@ export default function Home() {
     setMessage(`Personalpasswort für "${restaurant.name}" gespeichert.`);
   };
 
+  const updateAdminDashboardPassword = async (restaurant: Restaurant) => {
+    const cleanPassword = (adminPasswordDrafts[restaurant.id] ?? "").trim();
+
+    if (cleanPassword.length < 4) {
+      setMessage("Admin-Dashboard-Passwort muss mindestens 4 Zeichen lang sein.");
+      return;
+    }
+
+    setSavingAdminPasswordId(restaurant.id);
+    setMessage(`Admin-Dashboard-Passwort für "${restaurant.name}" wird gespeichert...`);
+
+    const { error } = await supabase
+      .from("settings")
+      .upsert(
+        {
+          restaurant_id: restaurant.id,
+          key: ADMIN_DASHBOARD_PASSWORD_KEY,
+          value: cleanPassword,
+        },
+        { onConflict: "restaurant_id,key" }
+      );
+
+    setSavingAdminPasswordId("");
+
+    if (error) {
+      setMessage(`Fehler beim Speichern des Admin-Dashboard-Passworts: ${error.message}`);
+      return;
+    }
+
+    setRestaurantOverviews((currentOverviews) => ({
+      ...currentOverviews,
+      [restaurant.id]: {
+        ...currentOverviews[restaurant.id],
+        adminDashboardPassword: cleanPassword,
+      },
+    }));
+    setAdminPasswordDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [restaurant.id]: "",
+    }));
+    setMessage(`Admin-Dashboard-Passwort für "${restaurant.name}" gespeichert.`);
+  };
+
+  const updateAdminDashboardPasswordRequired = async (restaurant: Restaurant, required: boolean) => {
+    setSavingAdminPasswordRequiredId(restaurant.id);
+    setMessage(`Admin-Dashboard-Schutz für "${restaurant.name}" wird gespeichert...`);
+
+    const { error } = await supabase
+      .from("settings")
+      .upsert(
+        {
+          restaurant_id: restaurant.id,
+          key: ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY,
+          value: String(required),
+        },
+        { onConflict: "restaurant_id,key" }
+      );
+
+    setSavingAdminPasswordRequiredId("");
+
+    if (error) {
+      setMessage(`Fehler beim Speichern des Admin-Dashboard-Schutzes: ${error.message}`);
+      return;
+    }
+
+    setRestaurantOverviews((currentOverviews) => ({
+      ...currentOverviews,
+      [restaurant.id]: {
+        ...currentOverviews[restaurant.id],
+        adminDashboardPasswordRequired: required,
+      },
+    }));
+    setMessage(required ? `Admin-Dashboard-Schutz für "${restaurant.name}" aktiviert.` : `Admin-Dashboard-Schutz für "${restaurant.name}" deaktiviert.`);
+  };
+
   if (!startPageAuthInitialized) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-ordry-dark via-ordry-medium to-ordry-dark text-white flex items-center justify-center p-4 font-sans">
@@ -964,6 +1086,8 @@ export default function Home() {
                   const logoUrl = restaurantLogos[restaurant.id];
                   const overview = restaurantOverviews[restaurant.id] || {
                     personalPassword: "Lädt...",
+                    adminDashboardPassword: DEFAULT_ADMIN_DASHBOARD_PASSWORD,
+                    adminDashboardPasswordRequired: DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED,
                     tableCount: 0,
                     lastOrderAt: null,
                   };
@@ -1046,7 +1170,7 @@ export default function Home() {
                                 </div>
                                 <div className="grid gap-2">
                                   <label className="block">
-                                    <span className="mb-1 block text-xs font-bold uppercase text-white/45">Neues Passwort</span>
+                                    <span className="mb-1 block text-xs font-bold uppercase text-white/45">Neues Personalpasswort</span>
                                     <input
                                       type="text"
                                       value={passwordDrafts[restaurant.id] ?? ""}
@@ -1071,7 +1195,51 @@ export default function Home() {
                                     disabled={savingPasswordId === restaurant.id}
                                     className="rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold text-white transition hover:border-ordry-orange hover:bg-ordry-orange/20 disabled:cursor-not-allowed disabled:opacity-60"
                                   >
-                                    {savingPasswordId === restaurant.id ? "Speichert..." : "Passwort speichern"}
+                                    {savingPasswordId === restaurant.id ? "Speichert..." : "Personalpasswort speichern"}
+                                  </button>
+                                </div>
+                                <div>
+                                  <div className="text-xs font-bold uppercase text-white/45">Admin-Dashboard Passwort</div>
+                                  <div className="mt-1 break-words font-mono text-white">{overview.adminDashboardPassword}</div>
+                                </div>
+                                <label className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium">
+                                  <span>Extra Admin-Passwort benötigt</span>
+                                  <input
+                                    type="checkbox"
+                                    checked={overview.adminDashboardPasswordRequired}
+                                    disabled={savingAdminPasswordRequiredId === restaurant.id}
+                                    onChange={(event) => updateAdminDashboardPasswordRequired(restaurant, event.target.checked)}
+                                    className="h-5 w-5 accent-ordry-orange disabled:cursor-not-allowed disabled:opacity-60"
+                                  />
+                                </label>
+                                <div className="grid gap-2">
+                                  <label className="block">
+                                    <span className="mb-1 block text-xs font-bold uppercase text-white/45">Neues Admin-Passwort</span>
+                                    <input
+                                      type="text"
+                                      value={adminPasswordDrafts[restaurant.id] ?? ""}
+                                      onChange={(event) =>
+                                        setAdminPasswordDrafts((currentDrafts) => ({
+                                          ...currentDrafts,
+                                          [restaurant.id]: event.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          void updateAdminDashboardPassword(restaurant);
+                                        }
+                                      }}
+                                      placeholder="Admin-Dashboard Passwort ändern"
+                                      className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-white outline-none placeholder:text-white/35 focus:border-ordry-orange"
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateAdminDashboardPassword(restaurant)}
+                                    disabled={savingAdminPasswordId === restaurant.id}
+                                    className="rounded-lg border border-white/25 bg-white/10 px-3 py-2 text-xs font-bold text-white transition hover:border-ordry-orange hover:bg-ordry-orange/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {savingAdminPasswordId === restaurant.id ? "Speichert..." : "Admin-Passwort speichern"}
                                   </button>
                                 </div>
                                 <div>

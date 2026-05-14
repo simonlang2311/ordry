@@ -22,16 +22,40 @@ export default function FullscreenButton() {
   }, []);
 
   const toggleFullscreen = async () => {
-    if (!document.documentElement.requestFullscreen) {
-      return;
-    }
+    const documentElement = document.documentElement as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+      msRequestFullscreen?: () => Promise<void> | void;
+    };
+    const fullscreenDocument = document as Document & {
+      webkitFullscreenElement?: Element | null;
+      msFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+      msExitFullscreen?: () => Promise<void> | void;
+    };
+    const currentFullscreenElement =
+      document.fullscreenElement ||
+      fullscreenDocument.webkitFullscreenElement ||
+      fullscreenDocument.msFullscreenElement;
 
-    if (!document.fullscreenElement) {
-      await document.documentElement.requestFullscreen();
-      return;
-    }
+    try {
+      if (!currentFullscreenElement) {
+        const request =
+          documentElement.requestFullscreen ||
+          documentElement.webkitRequestFullscreen ||
+          documentElement.msRequestFullscreen;
+        if (!request) return;
+        await request.call(documentElement);
+        return;
+      }
 
-    await document.exitFullscreen();
+      const exit =
+        document.exitFullscreen ||
+        fullscreenDocument.webkitExitFullscreen ||
+        fullscreenDocument.msExitFullscreen;
+      if (exit) await exit.call(document);
+    } catch (error) {
+      console.error("Vollbildmodus konnte nicht umgeschaltet werden:", error);
+    }
   };
 
   if (isTablePage) {

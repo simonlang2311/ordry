@@ -1508,36 +1508,58 @@ export default function MenuEditor() {
                 <input type="text" placeholder="Neue Kategorie (z.B. Heißgetränke)" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} className="flex-1 p-3 rounded-xl bg-app-bg border border-app-muted/20 outline-none focus:border-app-primary" />
                 <button onClick={addCategory} className="bg-app-primary text-white font-bold px-6 rounded-xl hover:brightness-110">Hinzufügen</button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-3">
                 {categories.map((cat, index) => (
-                  <div key={cat.id} className="flex items-center justify-between p-3 bg-app-bg rounded-lg border border-app-muted/10 group">
-                    <div className="min-w-0">
-                      <span className="block truncate font-bold text-app-text">{cat.label}</span>
-                      <span className="text-xs font-semibold text-app-muted">Position {index + 1}</span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => moveCategory(cat.id, -1)}
-                        disabled={index === 0}
-                        className="h-8 w-8 rounded-lg border border-app-muted/20 text-app-muted hover:border-app-primary hover:text-app-primary disabled:cursor-not-allowed disabled:opacity-30"
-                        aria-label={`${cat.label} nach oben verschieben`}
-                        title="Nach oben"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveCategory(cat.id, 1)}
-                        disabled={index === categories.length - 1}
-                        className="h-8 w-8 rounded-lg border border-app-muted/20 text-app-muted hover:border-app-primary hover:text-app-primary disabled:cursor-not-allowed disabled:opacity-30"
-                        aria-label={`${cat.label} nach unten verschieben`}
-                        title="Nach unten"
-                      >
-                        ↓
-                      </button>
-                      <button onClick={() => deleteCategory(cat.id)} className="text-app-muted hover:text-app-danger opacity-0 group-hover:opacity-100 transition-opacity text-sm px-2">Entfernen</button>
-                    </div>
+                  <div key={cat.id} className="flex flex-col gap-3 rounded-xl border border-app-muted/10 bg-app-bg p-4 md:flex-row md:items-center md:justify-between">
+                    {editingCategoryId === cat.id ? (
+                      <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-center">
+                        <input
+                          autoFocus
+                          value={editCategoryLabel}
+                          onChange={(event) => setEditCategoryLabel(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') void saveEditCategory(cat.id);
+                            if (event.key === 'Escape') cancelEditCategory();
+                          }}
+                          className="w-full rounded-lg border border-app-primary bg-app-card px-3 py-2 font-bold text-app-text outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={() => saveEditCategory(cat.id)} className="rounded-lg bg-app-primary px-4 py-2 text-sm font-bold text-white hover:brightness-110">Speichern</button>
+                          <button onClick={cancelEditCategory} className="rounded-lg border border-app-muted/20 px-4 py-2 text-sm font-bold text-app-muted hover:bg-app-muted/10">Abbrechen</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="min-w-0">
+                          <span className="block truncate text-lg font-bold text-app-text">{cat.label}</span>
+                          <span className="text-xs font-semibold text-app-muted">Position {index + 1}</span>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => moveCategory(cat.id, -1)}
+                            disabled={index === 0}
+                            className="h-9 w-9 rounded-lg border border-app-muted/20 text-app-muted hover:border-app-primary hover:text-app-primary disabled:cursor-not-allowed disabled:opacity-30"
+                            aria-label={`${cat.label} nach oben verschieben`}
+                            title="Nach oben"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveCategory(cat.id, 1)}
+                            disabled={index === categories.length - 1}
+                            className="h-9 w-9 rounded-lg border border-app-muted/20 text-app-muted hover:border-app-primary hover:text-app-primary disabled:cursor-not-allowed disabled:opacity-30"
+                            aria-label={`${cat.label} nach unten verschieben`}
+                            title="Nach unten"
+                          >
+                            ↓
+                          </button>
+                          <button onClick={() => startEditCategory(cat)} className="rounded-lg border border-app-muted/20 px-3 py-2 text-sm font-bold text-app-muted hover:border-app-primary hover:text-app-primary">Bearbeiten</button>
+                          <button onClick={() => deleteCategory(cat.id)} className="rounded-lg border border-app-danger/20 px-3 py-2 text-sm font-bold text-app-danger hover:bg-app-danger/10">Löschen</button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>

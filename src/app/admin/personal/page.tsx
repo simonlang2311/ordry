@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
@@ -7,20 +8,16 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { supabase } from "@/lib/supabase";
 import {
   applyCustomThemeColors,
+  applyAccessibleThemeColors,
   CUSTOM_THEME_FIELDS,
   CUSTOM_THEME_SETTINGS_KEY,
   CustomThemeColors,
   DEFAULT_CUSTOM_THEME_COLORS,
+  FONT_MAP,
+  FONT_OPTIONS,
   parseCustomThemeColors,
+  validateCustomThemeContrast,
 } from "@/lib/appearance";
-
-const FONT_FAMILY_MAP: Record<string, string> = {
-  geist: "var(--font-geist-sans)",
-  system: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-  serif: "Georgia, 'Times New Roman', Times, serif",
-  rounded: "'Trebuchet MS', 'Avenir Next', 'Segoe UI', sans-serif",
-  mono: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-};
 
 function PersonalContent() {
   const [logoUrl, setLogoUrl] = useState("");
@@ -40,6 +37,8 @@ function PersonalContent() {
 
   const getRuleTextClass = (passed: boolean | null) =>
     passed === false ? "text-red-500 font-semibold" : "text-app-muted";
+  const customThemeContrastChecks = validateCustomThemeContrast(customColors);
+  const customThemeHasContrastIssues = customThemeContrastChecks.some((check) => !check.passed);
 
   // Konvertiert jede Bilddatei in eine komprimierte Base64-DataURL
   // kein Storage-Bucket nötig, direkt in settings gespeichert
@@ -163,7 +162,11 @@ function PersonalContent() {
   const saveTheme = async (themeName: string) => {
     setStatus("Speichere...");
     setCurrentTheme(themeName);
-    if (themeName === "custom") applyCustomThemeColors(customColors);
+    if (themeName === "custom") {
+      applyCustomThemeColors(customColors);
+    } else {
+      applyAccessibleThemeColors(themeName, customColors);
+    }
 
     localStorage.setItem("theme", themeName);
     window.dispatchEvent(new Event("storage"));
@@ -182,17 +185,20 @@ function PersonalContent() {
   const updateCustomColor = (key: keyof CustomThemeColors, value: string) => {
     const nextColors = { ...customColors, [key]: value };
     setCustomColors(nextColors);
-    if (currentTheme === "custom") applyCustomThemeColors(nextColors);
+    if (currentTheme === "custom") {
+      applyCustomThemeColors(nextColors);
+    }
+    void saveCustomThemeColors(false, nextColors, true);
   };
 
-  const saveCustomThemeColors = async (activate = false) => {
-    setStatus("Speichere...");
-    applyCustomThemeColors(customColors);
+  const saveCustomThemeColors = async (activate = false, colors = customColors, quiet = false) => {
+    if (!quiet) setStatus("Speichere...");
+    if (currentTheme === "custom" || activate) applyCustomThemeColors(colors);
 
     const { error } = await supabase
       .from("settings")
       .upsert(
-        { restaurant_id: process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1', key: CUSTOM_THEME_SETTINGS_KEY, value: JSON.stringify(customColors) },
+        { restaurant_id: process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1', key: CUSTOM_THEME_SETTINGS_KEY, value: JSON.stringify(colors) },
         { onConflict: "key,restaurant_id" }
       );
 
@@ -201,9 +207,9 @@ function PersonalContent() {
       return;
     }
 
-    if (activate || currentTheme === "custom") {
+    if (activate) {
       await saveTheme("custom");
-    } else {
+    } else if (!quiet) {
       showTemporaryStatus("Farben gespeichert");
     }
   };
@@ -211,7 +217,7 @@ function PersonalContent() {
   const saveFontFamily = async (fontKey: string) => {
     setCurrentFont(fontKey);
 
-    const selectedFont = FONT_FAMILY_MAP[fontKey] || FONT_FAMILY_MAP.geist;
+    const selectedFont = FONT_MAP[fontKey] || FONT_MAP.geist;
     document.documentElement.style.setProperty("--app-font-sans", selectedFont);
     document.body.style.setProperty("--app-font-sans", selectedFont);
     document.documentElement.style.fontFamily = selectedFont;
@@ -525,7 +531,7 @@ function PersonalContent() {
                 <div className="mt-6 rounded-2xl border border-app-muted/20 bg-app-bg p-4">
                   <div className="mb-4">
                     <h3 className="text-sm font-bold text-app-text">Benutzerdefinierte Farben</h3>
-                    <p className="mt-1 text-xs text-app-muted">Wähle vier Farben aus der Farbpalette und speichere sie als eigenes Theme.</p>
+                    <p className="mt-1 text-xs text-app-muted">Wähle vier Farben aus der Farbpalette. Die Auswahl wird automatisch gespeichert.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                     {CUSTOM_THEME_FIELDS.map((field) => (
@@ -541,38 +547,35 @@ function PersonalContent() {
                       </label>
                     ))}
                   </div>
-                  <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => saveCustomThemeColors(false)}
-                      className="rounded-xl border border-app-primary px-4 py-3 text-sm font-bold text-app-primary hover:bg-app-primary/10"
-                    >
-                      Farben speichern
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => saveCustomThemeColors(true)}
-                      className="rounded-xl bg-app-accent px-4 py-3 text-sm font-bold text-white shadow-lg hover:brightness-110"
-                    >
-                      Benutzerdefiniert aktivieren
-                    </button>
-                  </div>
+                  {customThemeHasContrastIssues && (
+                    <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                      Warnung: Der Kontrast könnte nicht hoch genug sein.
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6 rounded-2xl border border-app-muted/20 bg-app-bg p-4">
                   <label className="mb-2 block text-sm font-bold text-app-text">Schriftart</label>
-                  <select
-                    value={currentFont}
-                    onChange={(e) => saveFontFamily(e.target.value)}
-                    style={{ fontFamily: FONT_FAMILY_MAP[currentFont] || FONT_FAMILY_MAP.geist }}
-                    className="w-full rounded-lg border border-app-muted/30 bg-app-card px-3 py-2 text-app-text outline-none focus:border-app-primary"
-                  >
-                    <option value="geist" style={{ fontFamily: FONT_FAMILY_MAP.geist }}>Geist (Standard)</option>
-                    <option value="system" style={{ fontFamily: FONT_FAMILY_MAP.system }}>System Sans</option>
-                    <option value="serif" style={{ fontFamily: FONT_FAMILY_MAP.serif }}>Serif</option>
-                    <option value="rounded" style={{ fontFamily: FONT_FAMILY_MAP.rounded }}>Rounded Sans</option>
-                    <option value="mono" style={{ fontFamily: FONT_FAMILY_MAP.mono }}>Monospace</option>
-                  </select>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {FONT_OPTIONS.map((font) => {
+                      const isSelected = currentFont === font.key;
+                      return (
+                        <button
+                          key={font.key}
+                          type="button"
+                          onClick={() => saveFontFamily(font.key)}
+                          style={{ "--preview-font": FONT_MAP[font.key] || FONT_MAP.geist } as CSSProperties}
+                          className={`font-preview rounded-xl border px-4 py-3 text-left text-lg transition-all ${
+                            isSelected
+                              ? "border-app-primary bg-app-primary/10 text-app-primary shadow-sm"
+                              : "border-app-muted/20 bg-app-card text-app-text hover:border-app-primary/50 hover:bg-app-primary/5"
+                          }`}
+                        >
+                          {font.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                   <p className="mt-2 text-xs text-app-muted">Die Auswahl wird sofort angewendet und systemweit gespeichert.</p>
                 </div>
               </div>

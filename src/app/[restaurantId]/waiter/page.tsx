@@ -1273,13 +1273,20 @@ function WaiterContent() {
 
   const cancelOrder = async (orderId: number) => {
     if (!confirm("Bestellung wirklich stornieren? Dies kann nicht rückgängig gemacht werden.")) return;
-    await supabase.from('orders').delete().eq('id', orderId);
-    if (selectedTable) loadTableData(selectedTable);
-    fetchStatus();
+    await supabase.from('orders').delete().eq('restaurant_id', restaurantId).eq('id', orderId);
+    if (selectedTable) await loadTableData(selectedTable);
+    await fetchStatus();
   };
 
   const cancelOrderItem = async (orderId: number, itemIndex: number, itemName: string, requestedQty?: number) => {
-    const order = tableOrders.find(o => o.id === orderId);
+    let order = tableOrders.find(o => o.id === orderId);
+    const { data: freshOrder } = await supabase
+      .from('orders')
+      .select('id, items, status, created_at, total_price')
+      .eq('restaurant_id', restaurantId)
+      .eq('id', orderId)
+      .maybeSingle();
+    if (freshOrder) order = freshOrder as OrderDetail;
     if (!order) return;
 
     const deletedItem = order.items[itemIndex];
@@ -1324,9 +1331,9 @@ function WaiterContent() {
     const newTotal = Math.max(0, oldTotal - itemTotalPrice);
     
     if (newItems.length === 0) {
-      await supabase.from('orders').delete().eq('id', orderId);
+      await supabase.from('orders').delete().eq('restaurant_id', restaurantId).eq('id', orderId);
     } else {
-      await supabase.from('orders').update({ items: newItems, total_price: newTotal }).eq('id', orderId);
+      await supabase.from('orders').update({ items: newItems, total_price: newTotal }).eq('restaurant_id', restaurantId).eq('id', orderId);
     }
     
     // WICHTIG: Wenn aus einer Teil-Rechnung storniert wird, auch aus allen anderen Bestellungen entfernen
@@ -1372,16 +1379,16 @@ function WaiterContent() {
           const otherNewTotal = Math.max(0, (otherOrder.total_price || 0) - priceReduction);
           
           if (updatedItems.length === 0) {
-            await supabase.from('orders').delete().eq('id', otherOrder.id);
+            await supabase.from('orders').delete().eq('restaurant_id', restaurantId).eq('id', otherOrder.id);
           } else {
-            await supabase.from('orders').update({ items: updatedItems, total_price: otherNewTotal }).eq('id', otherOrder.id);
+            await supabase.from('orders').update({ items: updatedItems, total_price: otherNewTotal }).eq('restaurant_id', restaurantId).eq('id', otherOrder.id);
           }
         }
       }
     }
     
-    if (selectedTable) loadTableData(selectedTable);
-    fetchStatus();
+    if (selectedTable) await loadTableData(selectedTable);
+    await fetchStatus();
   };
 
   const paySingleItem = async (orderId: number, itemIndex: number, displayItem: string, requestedQty?: number) => {
@@ -1727,7 +1734,7 @@ function WaiterContent() {
 
   const visibleTables = tables.filter(t => (t.level || 'EG') === currentLevel);
   const tableLimitText = features.tableLimit === 1 ? "1 freigeschaltet" : `${features.tableLimit} freigeschaltet`;
-  const topControlClass = "flex h-10 w-[9.5rem] items-center justify-center gap-1.5 rounded-lg px-3 text-center text-xs font-bold leading-tight shadow-lg transition-all md:h-11 md:w-[16rem] md:whitespace-nowrap md:text-sm";
+  const topControlClass = "flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-center text-xs font-bold leading-tight shadow-lg transition-all md:h-11 md:w-[16rem] md:whitespace-nowrap md:text-sm";
 
   const getBlockedItems = () => {
     const blocked: Record<string, number> = {};
@@ -2025,9 +2032,9 @@ function WaiterContent() {
 
       {/* HEADER & CONTROLS */}
       <div className="fixed top-0 left-0 w-full bg-app-bg/90 backdrop-blur-md z-40 border-b border-app-muted/20 shadow-lg flex flex-col">
-        <div className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between">
-            <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">{currentLevel}</h1>
-            <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2 p-2 md:flex-row md:items-center md:justify-between md:p-4">
+            <h1 className="hidden text-xl font-bold items-center gap-2 md:flex md:text-2xl">{currentLevel}</h1>
+            <div className="grid w-full grid-cols-2 items-center gap-2 md:flex md:w-auto md:flex-wrap">
             <div className={`${topControlClass} hidden border border-app-muted/20 bg-app-card text-app-muted md:flex`}>
                 <span>Tische:</span>
                 <span className="text-app-text">{tables.length}</span>
@@ -2050,7 +2057,7 @@ function WaiterContent() {
             </div>
         </div>
 
-        <div className="px-4 pb-2">
+        <div className="px-2 pb-2 md:px-4">
           <div className="inline-flex bg-app-card/70 rounded-xl p-1 border border-app-muted/30">
             <button
               onClick={() => setViewMode('list')}
@@ -2067,10 +2074,10 @@ function WaiterContent() {
           </div>
         </div>
 
-        <div className="waiter-level-tabs flex px-4 gap-1 overflow-x-auto border-b border-app-muted/20">
+        <div className="waiter-level-tabs flex px-2 gap-1 overflow-x-auto border-b border-app-muted/20 md:px-4">
             {levels.map(lvl => {
                 const status = getLevelStatus(lvl);
-                let tabClass = "px-6 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 relative ";
+                let tabClass = "px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all flex items-center gap-2 relative md:px-6 md:py-3 md:text-sm ";
                 
                 if (currentLevel === lvl) {
                     // Aktiver Tab
@@ -2135,7 +2142,7 @@ function WaiterContent() {
 
       {/* TISCHE BEREICH */}
       {viewMode === 'hall' ? (
-        <div className="waiter-scroll-area waiter-scroll-area-hall w-full mt-56 h-[calc(100dvh-14rem)] px-2 pb-2 pt-7 md:mt-36 md:h-[calc(100dvh-9rem)] md:px-4 md:pb-4 md:pt-6 overflow-auto bg-app-bg">
+        <div className="waiter-scroll-area waiter-scroll-area-hall w-full mt-36 h-[calc(100dvh-9rem)] px-2 pb-2 pt-4 md:mt-36 md:h-[calc(100dvh-9rem)] md:px-4 md:pb-4 md:pt-6 overflow-auto bg-app-bg">
           <div className="relative min-w-[1600px] min-h-[1200px] pb-24 table-layout-wrapper origin-top-left bg-app-bg"
                style={{ 
                  width: '1600px',
@@ -2195,7 +2202,7 @@ function WaiterContent() {
           </div>
         </div>
       ) : (
-        <div className="waiter-scroll-area waiter-scroll-area-list w-full mt-56 h-[calc(100dvh-14rem)] p-3 pt-5 md:mt-36 md:h-[calc(100dvh-9rem)] md:p-4 overflow-auto bg-app-bg overscroll-y-contain">
+        <div className="waiter-scroll-area waiter-scroll-area-list w-full mt-36 h-[calc(100dvh-9rem)] p-3 pt-4 md:mt-36 md:h-[calc(100dvh-9rem)] md:p-4 overflow-auto bg-app-bg overscroll-y-contain">
           <div className="max-w-5xl mx-auto pt-3 md:pt-4 space-y-2 md:space-y-3 pb-24">
             {visibleTables
               .slice()

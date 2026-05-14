@@ -2,7 +2,14 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { useParams, usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { applyCustomThemeColors, CUSTOM_THEME_SETTINGS_KEY, FONT_MAP, parseCustomThemeColors } from "@/lib/appearance";
+import {
+  applyAccessibleThemeColors,
+  applyCustomThemeColors,
+  CUSTOM_THEME_SETTINGS_KEY,
+  DEFAULT_CUSTOM_THEME_COLORS,
+  FONT_MAP,
+  parseCustomThemeColors,
+} from "@/lib/appearance";
 import { RESTAURANT_FEATURES_KEY, parseRestaurantFeatures } from "@/lib/features";
 
 export default function ThemeWrapper({
@@ -29,6 +36,7 @@ export default function ThemeWrapper({
           : process.env.NEXT_PUBLIC_RESTAURANT_ID ?? undefined;
   const [theme, setTheme] = useState(initialTheme);
   const [fontFamily, setFontFamily] = useState(initialFontFamily);
+  const [customColors, setCustomColors] = useState(DEFAULT_CUSTOM_THEME_COLORS);
   const [themesLockedToOrdry, setThemesLockedToOrdry] = useState(false);
 
   useEffect(() => {
@@ -62,7 +70,13 @@ export default function ThemeWrapper({
       data?.forEach((setting) => {
         if (setting.key === 'theme' && setting.value && !features.themesLockedToOrdry) setTheme(setting.value);
         if (setting.key === 'font_family' && setting.value) setFontFamily(setting.value);
-        if (setting.key === CUSTOM_THEME_SETTINGS_KEY) applyCustomThemeColors(parseCustomThemeColors(setting.value));
+        if (setting.key === CUSTOM_THEME_SETTINGS_KEY) {
+          const nextCustomColors = parseCustomThemeColors(setting.value);
+          setCustomColors(nextCustomColors);
+          if ((features.themesLockedToOrdry ? "ordry" : data.find((item) => item.key === "theme")?.value) === "custom") {
+            applyCustomThemeColors(nextCustomColors);
+          }
+        }
       });
     };
     fetchSettings();
@@ -93,7 +107,9 @@ export default function ThemeWrapper({
             setFontFamily(newData.value);
           }
           if (newData.key === CUSTOM_THEME_SETTINGS_KEY) {
-            applyCustomThemeColors(parseCustomThemeColors(newData.value));
+            const nextCustomColors = parseCustomThemeColors(newData.value);
+            setCustomColors(nextCustomColors);
+            if (theme === "custom") applyCustomThemeColors(nextCustomColors);
           }
         }
       )
@@ -107,8 +123,13 @@ export default function ThemeWrapper({
   // Theme setzen
   useLayoutEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
+    if (theme === "custom") {
+      applyCustomThemeColors(customColors);
+    } else {
+      applyAccessibleThemeColors(theme, customColors);
+    }
     localStorage.setItem("theme", theme);
-  }, [theme]);
+  }, [theme, customColors]);
 
   // Schriftart global setzen
   useLayoutEffect(() => {

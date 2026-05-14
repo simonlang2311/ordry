@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useEffect, useState } from "react";
 import { DEFAULT_RESTAURANT_FEATURES, RestaurantFeatures, loadRestaurantFeatures } from "@/lib/features";
+import { supabase } from "@/lib/supabase";
+import AdminDashboardGate from "@/components/AdminDashboardGate";
 
 const adminSections = [
   {
@@ -45,6 +47,7 @@ function AdminContent() {
   const params = useParams();
   const restaurantId = params.restaurantId as string;
   const [features, setFeatures] = useState<RestaurantFeatures>(DEFAULT_RESTAURANT_FEATURES);
+  const [restaurantName, setRestaurantName] = useState("");
 
   useEffect(() => {
     let isActive = true;
@@ -54,7 +57,18 @@ function AdminContent() {
       if (isActive) setFeatures(nextFeatures);
     };
 
+    const loadRestaurantName = async () => {
+      const { data } = await supabase
+        .from("restaurants")
+        .select("name")
+        .eq("id", restaurantId)
+        .maybeSingle();
+
+      if (isActive) setRestaurantName(data?.name || restaurantId);
+    };
+
     void loadFeatures();
+    void loadRestaurantName();
 
     return () => {
       isActive = false;
@@ -71,7 +85,7 @@ function AdminContent() {
       <div className="max-w-4xl mx-auto">
         <header className="mb-12 flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-black mb-2">Admin Dashboard</h1>
+            <h1 className="text-4xl font-black mb-2">{restaurantName || restaurantId}</h1>
             <p className="text-app-muted">Hier steuerst du das Design und die Inhalte für {restaurantId}.</p>
           </div>
           <div className="flex items-center gap-4">
@@ -107,9 +121,14 @@ function AdminContent() {
 }
 
 export default function AdminPage() {
+  const params = useParams();
+  const restaurantId = typeof params?.restaurantId === "string" ? params.restaurantId : "";
+
   return (
     <ProtectedRoute>
-      <AdminContent />
+      <AdminDashboardGate restaurantId={restaurantId} homeHref={restaurantId ? `/${restaurantId}` : "/"}>
+        <AdminContent />
+      </AdminDashboardGate>
     </ProtectedRoute>
   );
 }

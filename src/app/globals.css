@@ -160,6 +160,11 @@ body * {
   font-family: var(--app-font-sans), var(--font-geist-sans), sans-serif !important;
 }
 
+.font-preview,
+.font-preview * {
+  font-family: var(--preview-font), var(--font-geist-sans), sans-serif !important;
+}
+
 /* --- ORDER SUCCESS: STIRRING POT ANIMATION --- */
 @keyframes spoon-stir-line {
   0% { transform: rotate(-12deg); }

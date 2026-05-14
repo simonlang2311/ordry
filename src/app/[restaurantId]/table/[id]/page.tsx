@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Logo } from '@/components/Branding';
 import { DEFAULT_RESTAURANT_FEATURES, RestaurantFeatures, loadRestaurantFeatures } from "@/lib/features";
+import { DEFAULT_TIME_WINDOW, TimeWindow, formatTimeWindow, isWithinTimeWindow, parseTimeWindow } from "@/lib/orderHours";
 import { 
   validateAndRedirectToken,
   createNewCustomerTokenForTable
@@ -26,6 +27,7 @@ type Product = {
   category?: string;
   vatRate?: number;
   allergens?: string[];
+  itemType?: "food" | "drink";
 };
 
 type MenuRow = {
@@ -226,6 +228,9 @@ export default function TablePage() {
   const [allergensDisabledNotice, setAllergensDisabledNotice] = useState("");
   const [upsellProductIds, setUpsellProductIds] = useState<number[]>([]);
   const [features, setFeatures] = useState<RestaurantFeatures>(DEFAULT_RESTAURANT_FEATURES);
+  const [openingHours, setOpeningHours] = useState<TimeWindow>(DEFAULT_TIME_WINDOW);
+  const [kitchenHours, setKitchenHours] = useState<TimeWindow>(DEFAULT_TIME_WINDOW);
+  const [timeNow, setTimeNow] = useState(() => new Date());
 
   // Token Management
   const [tokenState, setTokenState] = useState<{
@@ -351,10 +356,16 @@ export default function TablePage() {
 
         const allergensEnabledPromise = supabase.from('settings').select('value').eq('key', 'allergens_enabled').eq('restaurant_id', restaurantId).single();
         const allergensDisabledNoticePromise = supabase.from('settings').select('value').eq('key', 'allergens_disabled_notice').eq('restaurant_id', restaurantId).single();
+        const openingHoursPromise = supabase.from('settings').select('value').eq('key', 'opening_hours').eq('restaurant_id', restaurantId).single();
+        const kitchenHoursPromise = supabase.from('settings').select('value').eq('key', 'kitchen_hours').eq('restaurant_id', restaurantId).single();
         const { data: allergensEnabledData } = await Promise.race([allergensEnabledPromise, timeoutPromise as any]);
         const { data: allergensDisabledNoticeData } = await Promise.race([allergensDisabledNoticePromise, timeoutPromise as any]);
+        const { data: openingHoursData } = await Promise.race([openingHoursPromise, timeoutPromise as any]);
+        const { data: kitchenHoursData } = await Promise.race([kitchenHoursPromise, timeoutPromise as any]);
         setAllergensEnabled(allergensEnabledData?.value !== 'false');
         setAllergensDisabledNotice(allergensDisabledNoticeData?.value || '');
+        setOpeningHours(parseTimeWindow(openingHoursData?.value));
+        setKitchenHours(parseTimeWindow(kitchenHoursData?.value));
 
         const upsellProductsPromise = supabase.from('settings').select('value').eq('key', 'upsell_products').eq('restaurant_id', restaurantId).single();
         const { data: upsellProductsData } = await Promise.race([upsellProductsPromise, timeoutPromise as any]);
@@ -450,7 +461,8 @@ export default function TablePage() {
                 category: 'lunch-special',
                 isSpecial: true,
                 vatRate,
-                allergens: normalizeAllergens(item.allergens)
+                allergens: normalizeAllergens(item.allergens),
+                itemType: item.item_type === "drink" ? "drink" : "food"
               };
             }) : [];
 
@@ -489,7 +501,8 @@ export default function TablePage() {
               category: 'lunch-special',
               isSpecial: true,
               vatRate: 7,
-              allergens: menuAllergens
+              allergens: menuAllergens,
+              itemType: "food"
             };
           }) : [];
 
@@ -528,7 +541,8 @@ export default function TablePage() {
                 category: item.category,
                 isSpecial: false,
                 vatRate: item.vat_rate ?? (item.item_type === "drink" ? 19 : 7),
-                allergens: normalizeAllergens(item.allergens)
+                allergens: normalizeAllergens(item.allergens),
+                itemType: item.item_type === "drink" ? "drink" : "food"
               }));
 
             if (items.length > 0) {
@@ -568,7 +582,9 @@ export default function TablePage() {
             settingKey === 'lunch_special' ||
             settingKey === 'allergens_enabled' ||
             settingKey === 'allergens_disabled_notice' ||
-            settingKey === 'upsell_products'
+            settingKey === 'upsell_products' ||
+            settingKey === 'opening_hours' ||
+            settingKey === 'kitchen_hours'
           ) {
             void fetchMenuData();
           }
@@ -595,6 +611,11 @@ export default function TablePage() {
 
     return () => clearInterval(checkInterval);
   }, [lunchSpecial, isLunchTimeActive]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setTimeNow(new Date()), 30000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   // --- ORDERS LADEN ---
   const fetchOrders = async () => {
@@ -683,7 +704,21 @@ export default function TablePage() {
     });
   };
 
+  const isRestaurantOpen = isWithinTimeWindow(openingHours, timeNow);
+  const isKitchenOpen = isWithinTimeWindow(kitchenHours, timeNow);
+  const getProductAvailabilityMessage = (product?: Product) => {
+    if (!isRestaurantOpen) return `Bestellungen sind nur während der Öffnungszeiten möglich (${formatTimeWindow(openingHours)}).`;
+    if (product && product.itemType !== "drink" && !isKitchenOpen) return `Die Küche ist aktuell geschlossen. Getränke können weiter bestellt werden (${formatTimeWindow(kitchenHours)}).`;
+    return "";
+  };
+  const canOrderProduct = (product: Product) => !getProductAvailabilityMessage(product);
+
   const addToCart = (product: Product) => {
+    const unavailableReason = getProductAvailabilityMessage(product);
+    if (unavailableReason) {
+      alert(unavailableReason);
+      return;
+    }
     addProductToCart(product);
     setTempNote(""); setShowNoteInput(true); setLastAddedItemName(product.name); setLastAddedItemId(product.id);
     setSelectedUpsellQuantities({});
@@ -759,6 +794,12 @@ export default function TablePage() {
   };
 
   const placeOrder = async () => {
+    const blockedCartItem = cart.find((item) => getProductAvailabilityMessage(item));
+    if (blockedCartItem) {
+      alert(getProductAvailabilityMessage(blockedCartItem));
+      return;
+    }
+
     const accessCheck = await validateAndRedirectToken(tableId, tokenState.currentToken || tokenFromUrl, supabase, restaurantId);
     if (!accessCheck.isValid) {
       setTokenState({
@@ -939,6 +980,7 @@ export default function TablePage() {
 
   const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartHasUnavailableItems = cart.some((item) => Boolean(getProductAvailabilityMessage(item)));
   
   const currentCategoryObj = currentMenu.find(cat => cat.name === activeCategory) || currentMenu[0];
   const currentProducts = currentCategoryObj ? currentCategoryObj.items : [];
@@ -1169,6 +1211,16 @@ export default function TablePage() {
       </div>
 
       <div className="p-4 space-y-8 md:space-y-12">
+        {!isRestaurantOpen && (
+          <div className="rounded-2xl border border-app-danger/30 bg-app-danger/10 p-4 text-sm font-bold text-app-danger">
+            Aktuell geschlossen. Bestellungen sind nur während der Öffnungszeiten möglich ({formatTimeWindow(openingHours)}).
+          </div>
+        )}
+        {isRestaurantOpen && !isKitchenOpen && (
+          <div className="rounded-2xl border border-app-accent/30 bg-app-accent/10 p-4 text-sm font-bold text-app-text">
+            Die Küche ist aktuell geschlossen. Getränke können weiter bestellt werden. Küchenzeiten: {formatTimeWindow(kitchenHours)}.
+          </div>
+        )}
         {currentMenu.length > 0 ? currentMenu.map((category) => (
           <div 
             key={category.id}
@@ -1184,10 +1236,13 @@ export default function TablePage() {
             </div>
             
             {/* Products in category */}
-            {category.items.length > 0 ? category.items.map((product) => (
+            {category.items.length > 0 ? category.items.map((product) => {
+              const productUnavailableReason = getProductAvailabilityMessage(product);
+              const isProductAvailable = canOrderProduct(product);
+              return (
           <div
             key={product.id}
-            className={`rounded-xl border bg-app-card shadow-sm hover:shadow-md transition-shadow relative overflow-hidden ${product.isSpecial ? "border-app-accent border-2" : "border-app-muted/20"} md:flex md:flex-col md:justify-between md:p-4 p-3`}
+            className={`rounded-xl border bg-app-card shadow-sm transition-shadow relative overflow-hidden ${isProductAvailable ? "hover:shadow-md" : "opacity-60"} ${product.isSpecial ? "border-app-accent border-2" : "border-app-muted/20"} md:flex md:flex-col md:justify-between md:p-4 p-3`}
           >
             {product.isSpecial && (<div className="absolute top-0 right-0 bg-app-accent text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg">TIPP!</div>)}
             
@@ -1205,7 +1260,9 @@ export default function TablePage() {
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); addToCart(product); }}
-                  className="bg-app-primary text-white rounded-lg w-10 h-10 flex items-center justify-center font-bold text-xl hover:brightness-110 transition-colors active:scale-[0.95]"
+                  disabled={!isProductAvailable}
+                  title={productUnavailableReason}
+                  className={`rounded-lg w-10 h-10 flex items-center justify-center font-bold text-xl transition-colors active:scale-[0.95] ${isProductAvailable ? "bg-app-primary text-white hover:brightness-110" : "bg-app-muted/30 text-app-muted cursor-not-allowed"}`}
                 >
                   +
                 </button>
@@ -1227,13 +1284,16 @@ export default function TablePage() {
               </div>
               <button
                 onClick={(e) => { e.stopPropagation(); addToCart(product); }}
-                className="mt-4 w-full rounded-lg bg-app-primary py-2.5 text-sm font-bold text-white hover:brightness-110 transition-colors active:scale-[0.98]"
+                disabled={!isProductAvailable}
+                title={productUnavailableReason}
+                className={`mt-4 w-full rounded-lg py-2.5 text-sm font-bold transition-colors active:scale-[0.98] ${isProductAvailable ? "bg-app-primary text-white hover:brightness-110" : "bg-app-muted/30 text-app-muted cursor-not-allowed"}`}
               >
-                Hinzufügen +
+                {isProductAvailable ? "Hinzufügen +" : "Nicht verfügbar"}
               </button>
             </div>
           </div>
-            )) : (
+              );
+            }) : (
               <div className="text-center py-10 text-app-muted italic">In dieser Kategorie gibt es aktuell keine Gerichte.</div>
             )}
           </div>
@@ -1357,7 +1417,7 @@ export default function TablePage() {
                 <div className="flex justify-between items-center text-xl"><span className="font-bold text-app-text">Gesamtsumme</span><span className="font-bold text-app-accent text-2xl">{total.toFixed(2).replace('.', ',')} €</span></div>
                 <div className="text-right text-xs text-app-muted mt-1">inkl. MwSt.</div>
               </div>
-              <button onClick={placeOrder} disabled={cart.length === 0} className={`w-full rounded-xl py-4 text-lg font-bold text-white shadow-lg transition-all ${cart.length === 0 ? "bg-gray-400 cursor-not-allowed" : "bg-app-accent active:scale-[0.98] hover:brightness-110"}`}>Jetzt bestellen ({cartItemCount} Artikel)</button>
+              <button onClick={placeOrder} disabled={cart.length === 0 || cartHasUnavailableItems} className={`w-full rounded-xl py-4 text-lg font-bold text-white shadow-lg transition-all ${cart.length === 0 || cartHasUnavailableItems ? "bg-gray-400 cursor-not-allowed" : "bg-app-accent active:scale-[0.98] hover:brightness-110"}`}>Jetzt bestellen ({cartItemCount} Artikel)</button>
             </div>
           </div>
           <div className="flex-1" onClick={() => setShowCartDetails(false)}></div>
@@ -1521,7 +1581,7 @@ export default function TablePage() {
             </div>
             <span className="text-2xl font-bold text-app-text group-hover:scale-105 transition-transform">{total.toFixed(2).replace('.', ',')} €</span>
           </div>
-          <button onClick={placeOrder} className="w-full rounded-xl bg-app-accent py-3.5 text-lg font-bold text-white shadow-lg active:scale-[0.98] transition-all hover:brightness-110">Kostenpflichtig bestellen</button>
+          <button onClick={placeOrder} disabled={cartHasUnavailableItems} className={`w-full rounded-xl py-3.5 text-lg font-bold text-white shadow-lg active:scale-[0.98] transition-all ${cartHasUnavailableItems ? "bg-gray-400 cursor-not-allowed" : "bg-app-accent hover:brightness-110"}`}>Kostenpflichtig bestellen</button>
         </div>
       )}
     </div>

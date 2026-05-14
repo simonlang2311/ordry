@@ -1,7 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import AdminDashboardGate from "@/components/AdminDashboardGate";
+import { supabase } from "@/lib/supabase";
+
+const restaurantId = process.env.NEXT_PUBLIC_RESTAURANT_ID || "demo-restaurant-1";
 
 const adminSections = [
   {
@@ -37,12 +42,34 @@ const adminSections = [
 ];
 
 function AdminContent() {
+  const [restaurantName, setRestaurantName] = useState("");
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadRestaurantName = async () => {
+      const { data } = await supabase
+        .from("restaurants")
+        .select("name")
+        .eq("id", restaurantId)
+        .maybeSingle();
+
+      if (isActive) setRestaurantName(data?.name || restaurantId);
+    };
+
+    void loadRestaurantName();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-app-bg text-app-text p-8 transition-colors duration-500 font-sans">
       <div className="max-w-4xl mx-auto">
         <header className="mb-12 flex items-center justify-between">
           <div>
-            <h1 className="text-4xl font-black mb-2">Admin Dashboard</h1>
+            <h1 className="text-4xl font-black mb-2">{restaurantName || restaurantId}</h1>
             <p className="text-app-muted">Hier steuerst du das Design und die Inhalte.</p>
           </div>
           <div className="flex items-center gap-4">
@@ -80,7 +107,9 @@ function AdminContent() {
 export default function AdminPage() {
   return (
     <ProtectedRoute>
-      <AdminContent />
+      <AdminDashboardGate restaurantId={restaurantId} homeHref="/">
+        <AdminContent />
+      </AdminDashboardGate>
     </ProtectedRoute>
   );
 }

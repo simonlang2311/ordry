@@ -4,17 +4,33 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { DEFAULT_TIME_WINDOW, TimeWindow, parseTimeWindow } from "@/lib/orderHours";
+import {
+  ADMIN_DASHBOARD_PASSWORD_KEY,
+  ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY,
+  DEFAULT_ADMIN_DASHBOARD_PASSWORD,
+  DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED,
+} from "@/lib/adminDashboardPassword";
+
+const restaurantId = process.env.NEXT_PUBLIC_RESTAURANT_ID ?? "demo-restaurant-1";
 
 function SettingsContent() {
   const [drinksTarget, setDrinksTarget] = useState<"bar" | "kitchen">("bar");
   const [allergensEnabled, setAllergensEnabled] = useState(true);
   const [allergensDisabledNotice, setAllergensDisabledNotice] = useState("");
+  const [openingHours, setOpeningHours] = useState<TimeWindow>(DEFAULT_TIME_WINDOW);
+  const [kitchenHours, setKitchenHours] = useState<TimeWindow>(DEFAULT_TIME_WINDOW);
   const [showDrinksSection, setShowDrinksSection] = useState(false);
+  const [showHoursSection, setShowHoursSection] = useState(false);
   const [showPasswordSection, setShowPasswordSection] = useState(false);
+  const [showAdminDashboardPasswordSection, setShowAdminDashboardPasswordSection] = useState(false);
   const [showRestaurantLinkSection, setShowRestaurantLinkSection] = useState(false);
   const [showAllergensSection, setShowAllergensSection] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [adminDashboardPassword, setAdminDashboardPassword] = useState(DEFAULT_ADMIN_DASHBOARD_PASSWORD);
+  const [adminDashboardPasswordConfirm, setAdminDashboardPasswordConfirm] = useState("");
+  const [adminDashboardPasswordRequired, setAdminDashboardPasswordRequired] = useState(DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED);
   const [restaurantLink, setRestaurantLink] = useState("");
   const [savedRestaurantLink, setSavedRestaurantLink] = useState("");
   const [restaurantLinkError, setRestaurantLinkError] = useState("");
@@ -26,12 +42,18 @@ function SettingsContent() {
       const { data } = await supabase
         .from("settings")
         .select("key, value")
-        .in("key", ["drinks_target", "personal_password", "restaurant_link", "allergens_enabled", "allergens_disabled_notice"])
-        .eq("restaurant_id", process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1');
+        .in("key", ["drinks_target", "personal_password", ADMIN_DASHBOARD_PASSWORD_KEY, ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY, "restaurant_link", "allergens_enabled", "allergens_disabled_notice", "opening_hours", "kitchen_hours"])
+        .eq("restaurant_id", restaurantId);
 
       data?.forEach((setting) => {
         if (setting.key === "drinks_target" && (setting.value === "bar" || setting.value === "kitchen")) {
           setDrinksTarget(setting.value);
+        }
+        if (setting.key === ADMIN_DASHBOARD_PASSWORD_KEY) {
+          setAdminDashboardPassword(setting.value || DEFAULT_ADMIN_DASHBOARD_PASSWORD);
+        }
+        if (setting.key === ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY) {
+          setAdminDashboardPasswordRequired(setting.value !== "false");
         }
         if (setting.key === "allergens_enabled") {
           setAllergensEnabled(setting.value !== "false");
@@ -44,6 +66,12 @@ function SettingsContent() {
         if (setting.key === "allergens_disabled_notice") {
           setAllergensDisabledNotice(setting.value || "");
         }
+        if (setting.key === "opening_hours") {
+          setOpeningHours(parseTimeWindow(setting.value));
+        }
+        if (setting.key === "kitchen_hours") {
+          setKitchenHours(parseTimeWindow(setting.value));
+        }
       });
     };
 
@@ -54,12 +82,28 @@ function SettingsContent() {
     setDrinksTarget(value);
     const { error } = await supabase
       .from("settings")
-      .upsert({ key: "drinks_target", value, restaurant_id: process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1' }, { onConflict: "key,restaurant_id" });
+      .upsert({ key: "drinks_target", value, restaurant_id: restaurantId }, { onConflict: "key,restaurant_id" });
 
     if (error) {
       setStatus("Fehler: " + error.message);
     } else {
       setStatus("Getränke-Zuordnung gespeichert");
+      setTimeout(() => setStatus(""), 2000);
+    }
+  };
+
+  const saveTimeWindow = async (key: "opening_hours" | "kitchen_hours", value: TimeWindow) => {
+    if (key === "opening_hours") setOpeningHours(value);
+    if (key === "kitchen_hours") setKitchenHours(value);
+
+    const { error } = await supabase
+      .from("settings")
+      .upsert({ key, value: JSON.stringify(value), restaurant_id: restaurantId }, { onConflict: "key,restaurant_id" });
+
+    if (error) {
+      setStatus("Fehler: " + error.message);
+    } else {
+      setStatus(key === "opening_hours" ? "Öffnungszeiten gespeichert" : "Küchenzeiten gespeichert");
       setTimeout(() => setStatus(""), 2000);
     }
   };
@@ -76,7 +120,7 @@ function SettingsContent() {
 
     const { error } = await supabase
       .from("settings")
-      .upsert({ key: "personal_password", value: password, restaurant_id: process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1' }, { onConflict: "key,restaurant_id" });
+      .upsert({ key: "personal_password", value: password, restaurant_id: restaurantId }, { onConflict: "key,restaurant_id" });
 
     if (error) {
       setStatus("Fehler: " + error.message);
@@ -84,6 +128,53 @@ function SettingsContent() {
       setStatus("Passwort gespeichert");
       setPassword("");
       setPasswordConfirm("");
+      setTimeout(() => setStatus(""), 2000);
+    }
+  };
+
+  const saveAdminDashboardPassword = async () => {
+    const cleanPassword = adminDashboardPassword.trim();
+
+    if (cleanPassword.length < 4) {
+      setStatus("Admin-Dashboard-Passwort zu kurz");
+      return;
+    }
+    if (adminDashboardPasswordConfirm.trim() && cleanPassword !== adminDashboardPasswordConfirm.trim()) {
+      setStatus("Admin-Dashboard-Passwörter stimmen nicht überein");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("settings")
+      .upsert(
+        { key: ADMIN_DASHBOARD_PASSWORD_KEY, value: cleanPassword, restaurant_id: restaurantId },
+        { onConflict: "key,restaurant_id" }
+      );
+
+    if (error) {
+      setStatus("Fehler: " + error.message);
+    } else {
+      setAdminDashboardPassword(cleanPassword);
+      setAdminDashboardPasswordConfirm("");
+      setStatus("Admin-Dashboard-Passwort gespeichert");
+      setTimeout(() => setStatus(""), 2000);
+    }
+  };
+
+  const saveAdminDashboardPasswordRequired = async (value: boolean) => {
+    setAdminDashboardPasswordRequired(value);
+
+    const { error } = await supabase
+      .from("settings")
+      .upsert(
+        { key: ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY, value: String(value), restaurant_id: restaurantId },
+        { onConflict: "key,restaurant_id" }
+      );
+
+    if (error) {
+      setStatus("Fehler: " + error.message);
+    } else {
+      setStatus(value ? "Admin-Dashboard-Schutz aktiviert" : "Admin-Dashboard-Schutz deaktiviert");
       setTimeout(() => setStatus(""), 2000);
     }
   };
@@ -115,7 +206,7 @@ function SettingsContent() {
 
     const { error } = await supabase
       .from("settings")
-      .upsert({ key: "restaurant_link", value: trimmedLink, restaurant_id: process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1' }, { onConflict: "key,restaurant_id" });
+      .upsert({ key: "restaurant_link", value: trimmedLink, restaurant_id: restaurantId }, { onConflict: "key,restaurant_id" });
 
     if (error) {
       setRestaurantLinkError("Fehler: " + error.message);
@@ -131,7 +222,7 @@ function SettingsContent() {
     setAllergensEnabled(value);
     const { error } = await supabase
       .from("settings")
-      .upsert({ key: "allergens_enabled", value: String(value), restaurant_id: process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1' }, { onConflict: "key,restaurant_id" });
+      .upsert({ key: "allergens_enabled", value: String(value), restaurant_id: restaurantId }, { onConflict: "key,restaurant_id" });
 
     if (error) {
       setStatus("Fehler: " + error.message);
@@ -144,7 +235,7 @@ function SettingsContent() {
   const saveAllergensDisabledNotice = async () => {
     const { error } = await supabase
       .from("settings")
-      .upsert({ key: "allergens_disabled_notice", value: allergensDisabledNotice, restaurant_id: process.env.NEXT_PUBLIC_RESTAURANT_ID ?? 'demo-restaurant-1' }, { onConflict: "key,restaurant_id" });
+      .upsert({ key: "allergens_disabled_notice", value: allergensDisabledNotice, restaurant_id: restaurantId }, { onConflict: "key,restaurant_id" });
 
     if (error) {
       setStatus("Fehler: " + error.message);
@@ -219,6 +310,68 @@ function SettingsContent() {
           <div className="bg-app-card border border-app-muted/20 rounded-2xl shadow-sm overflow-hidden">
             <button
               type="button"
+              onClick={() => setShowHoursSection(!showHoursSection)}
+              className="flex w-full items-center justify-between px-6 py-5 text-left"
+              aria-expanded={showHoursSection}
+            >
+              <div>
+                <h2 className="text-xl font-bold mb-1">Bestellzeiten</h2>
+                <p className="text-sm text-app-muted">Öffnungszeiten blockieren alle Bestellungen. Küchenzeiten blockieren außerhalb nur Speisen.</p>
+              </div>
+              <span className={`text-2xl text-app-muted transition-transform ${showHoursSection ? "rotate-180" : ""}`}>⌃</span>
+            </button>
+            {showHoursSection && (
+              <div className="px-6 pb-6 space-y-4">
+                {[
+                  { key: "opening_hours" as const, title: "Öffnungszeiten", description: "Außerhalb dieser Zeit können Gäste nichts bestellen.", value: openingHours },
+                  { key: "kitchen_hours" as const, title: "Küchenzeiten", description: "Außerhalb dieser Zeit können Gäste nur Getränke bestellen.", value: kitchenHours },
+                ].map((item) => (
+                  <div key={item.key} className="rounded-xl border border-app-muted/20 bg-app-bg p-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-bold text-app-text">{item.title}</h3>
+                        <p className="text-sm text-app-muted">{item.description}</p>
+                      </div>
+                      <label className="flex items-center gap-2 text-sm font-bold text-app-muted">
+                        <input
+                          type="checkbox"
+                          checked={item.value.enabled}
+                          onChange={(event) => saveTimeWindow(item.key, { ...item.value, enabled: event.target.checked })}
+                        />
+                        Aktiv
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="text-sm font-bold text-app-muted">
+                        Von
+                        <input
+                          type="time"
+                          value={item.value.start}
+                          onChange={(event) => saveTimeWindow(item.key, { ...item.value, start: event.target.value })}
+                          disabled={!item.value.enabled}
+                          className="mt-1 w-full rounded-lg border border-app-muted/20 bg-app-card p-3 text-app-text outline-none focus:border-app-primary disabled:opacity-50"
+                        />
+                      </label>
+                      <label className="text-sm font-bold text-app-muted">
+                        Bis
+                        <input
+                          type="time"
+                          value={item.value.end}
+                          onChange={(event) => saveTimeWindow(item.key, { ...item.value, end: event.target.value })}
+                          disabled={!item.value.enabled}
+                          className="mt-1 w-full rounded-lg border border-app-muted/20 bg-app-card p-3 text-app-text outline-none focus:border-app-primary disabled:opacity-50"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-app-card border border-app-muted/20 rounded-2xl shadow-sm overflow-hidden">
+            <button
+              type="button"
               onClick={() => setShowPasswordSection(!showPasswordSection)}
               className="flex w-full items-center justify-between px-6 py-5 text-left"
               aria-expanded={showPasswordSection}
@@ -250,6 +403,59 @@ function SettingsContent() {
                   className="w-full bg-app-accent text-white font-bold py-3 rounded-xl hover:brightness-110 transition-colors"
                 >
                   Passwort speichern
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-app-card border border-app-muted/20 rounded-2xl shadow-sm overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowAdminDashboardPasswordSection(!showAdminDashboardPasswordSection)}
+              className="flex w-full items-center justify-between px-6 py-5 text-left"
+              aria-expanded={showAdminDashboardPasswordSection}
+            >
+              <div>
+                <h2 className="text-xl font-bold mb-1">Admin-Dashboard-Passwort</h2>
+                <p className="text-sm text-app-muted">Zusätzlicher Schutz für das Admin-Dashboard.</p>
+              </div>
+              <span className={`text-2xl text-app-muted transition-transform ${showAdminDashboardPasswordSection ? "rotate-180" : ""}`}>⌃</span>
+            </button>
+            {showAdminDashboardPasswordSection && (
+              <div className="px-6 pb-6 space-y-3">
+                <label className="flex items-center justify-between gap-4 rounded-xl border border-app-muted/20 bg-app-bg px-4 py-3">
+                  <span>
+                    <span className="block font-bold text-app-text">Extra Passwort abfragen</span>
+                    <span className="block text-sm text-app-muted">Wenn ausgeschaltet, öffnet sich das Admin-Dashboard direkt.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={adminDashboardPasswordRequired}
+                    onChange={(event) => saveAdminDashboardPasswordRequired(event.target.checked)}
+                    className="h-5 w-5 accent-app-primary"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-bold text-app-muted">Admin-Dashboard-Passwort</span>
+                  <input
+                    type="text"
+                    value={adminDashboardPassword}
+                    onChange={(event) => setAdminDashboardPassword(event.target.value)}
+                    className="w-full p-3 rounded-lg bg-app-bg border border-app-muted/20 outline-none focus:border-app-primary"
+                  />
+                </label>
+                <input
+                  type="password"
+                  placeholder="Passwort bestätigen (optional)"
+                  value={adminDashboardPasswordConfirm}
+                  onChange={(event) => setAdminDashboardPasswordConfirm(event.target.value)}
+                  className="w-full p-3 rounded-lg bg-app-bg border border-app-muted/20 outline-none focus:border-app-primary"
+                />
+                <button
+                  onClick={saveAdminDashboardPassword}
+                  className="w-full bg-app-accent text-white font-bold py-3 rounded-xl hover:brightness-110 transition-colors"
+                >
+                  Admin-Passwort speichern
                 </button>
               </div>
             )}

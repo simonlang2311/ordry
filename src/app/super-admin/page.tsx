@@ -5,6 +5,12 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import {
+  ADMIN_DASHBOARD_PASSWORD_KEY,
+  ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY,
+  DEFAULT_ADMIN_DASHBOARD_PASSWORD,
+  DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED,
+} from "@/lib/adminDashboardPassword";
 
 type Restaurant = {
   id: string;
@@ -49,6 +55,8 @@ const defaultSettingsFor = (restaurantId: string) => [
   { restaurant_id: restaurantId, key: "allergens_enabled", value: "true" },
   { restaurant_id: restaurantId, key: "drinks_target", value: "bar" },
   { restaurant_id: restaurantId, key: "personal_password", value: "schnitzel" },
+  { restaurant_id: restaurantId, key: ADMIN_DASHBOARD_PASSWORD_KEY, value: DEFAULT_ADMIN_DASHBOARD_PASSWORD },
+  { restaurant_id: restaurantId, key: ADMIN_DASHBOARD_PASSWORD_REQUIRED_KEY, value: String(DEFAULT_ADMIN_DASHBOARD_PASSWORD_REQUIRED) },
   { restaurant_id: restaurantId, key: "app_name", value: "ordry" },
   { restaurant_id: restaurantId, key: "logo_url", value: "" },
 ];
